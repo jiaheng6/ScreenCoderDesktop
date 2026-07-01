@@ -1,0 +1,32 @@
+# 依赖
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# 构建产物
+dist/
+build/
+out/
+release/
+.vite/
+
+# Electron / 桌面端缓存
+*.asar
+*.blockmap
+
+# 本地配置与密钥
+.env
+.env.*
+*.local
+*_api.txt
+
+# 任务运行产物
+workspace/jobs/
+workspace/tmp/
+workspace/cache/
+
+# 系统文件
+.DS_Store
+Thumbs.db
