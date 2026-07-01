@@ -6,6 +6,7 @@ import { ModelSettings } from './components/ModelSettings'
 import { PreviewPanel } from './components/PreviewPanel'
 import { RunPanel } from './components/RunPanel'
 import { UploadPanel } from './components/UploadPanel'
+import { selectPreferredModel } from './model-selection'
 import './styles.css'
 import type { PreviewContent } from './components/PreviewPanel'
 import type {
@@ -61,6 +62,27 @@ function App(): JSX.Element {
   }, [loadJobs])
 
   useEffect(() => {
+    let isCancelled = false
+
+    async function loadInitialModel(): Promise<void> {
+      try {
+        const models = await window.screencoder.listModels()
+        if (!isCancelled) {
+          setSelectedModel((currentModel) => selectPreferredModel(models, currentModel))
+        }
+      } catch (error) {
+        appendLog(`模型配置加载失败：${getErrorMessage(error)}`)
+      }
+    }
+
+    void loadInitialModel()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [appendLog])
+
+  useEffect(() => {
     return window.screencoder.onJobEvent((payload) => {
       setActiveJobId(payload.jobId)
       appendLog(formatJobEventPayload(payload))
@@ -107,6 +129,7 @@ function App(): JSX.Element {
           jobId: preview.jobId,
           htmlPath: preview.htmlPath,
           htmlUrl: preview.htmlUrl,
+          previewHtml: preview.previewHtml,
           html: preview.html,
           sourcePath: preview.sourcePath,
           source: preview.source

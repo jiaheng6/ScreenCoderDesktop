@@ -8,6 +8,7 @@ export type PreviewContent =
       jobId: string
       htmlPath: string
       htmlUrl: string
+      previewHtml: string
       html: string
       sourcePath: string | null
       source: string | null
@@ -52,7 +53,7 @@ export function PreviewPanel({ preview }: PreviewPanelProps): JSX.Element {
           <iframe
             className="preview-frame"
             sandbox="allow-scripts"
-            src={preview.htmlUrl}
+            srcDoc={preview.previewHtml}
             title="最终 HTML 预览"
           />
         </div>

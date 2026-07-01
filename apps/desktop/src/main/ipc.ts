@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { runWorker as defaultRunWorker, type RunWorkerInput, type WorkerEvent } from './jobs/job-runner'
 import type { CreateJobInput, JobRecord, JobStatus, JobStore } from './jobs/job-store'
@@ -63,6 +63,7 @@ export interface JobPreview {
   jobId: string
   htmlPath: string
   htmlUrl: string
+  previewHtml: string
   html: string
   sourcePath: string | null
   source: string | null
@@ -420,6 +421,7 @@ function readJobPreview(job: JobRecord): JobPreview {
     jobId: job.id,
     htmlPath: finalHtml.path,
     htmlUrl: pathToFileURL(finalHtml.path).href,
+    previewHtml: buildPreviewHtml(finalHtml.content, finalHtml.path),
     html: finalHtml.content,
     sourcePath: sourceFile?.path ?? null,
     source: sourceFile?.content ?? null
@@ -493,6 +495,78 @@ function readSafeOutputFile(
   return {
     path: realTargetPath,
     content: readFileSync(realTargetPath, 'utf8')
+  }
+}
+
+function buildPreviewHtml(html: string, htmlPath: string): string {
+  const outputRoot = realpathSync(dirname(htmlPath))
+
+  return html.replace(/\b(src|href)=(["'])([^"']+)\2/gi, (match, attribute, quote, value) => {
+    const dataUrl = resolvePreviewAssetDataUrl(value, outputRoot)
+
+    return dataUrl ? `${attribute}=${quote}${dataUrl}${quote}` : match
+  })
+}
+
+function resolvePreviewAssetDataUrl(reference: string, outputRoot: string): string | null {
+  const trimmedReference = reference.trim()
+  if (
+    !trimmedReference ||
+    trimmedReference.startsWith('#') ||
+    trimmedReference.startsWith('//') ||
+    /^[a-z][a-z\d+.-]*:/i.test(trimmedReference)
+  ) {
+    return null
+  }
+
+  const assetReferencePath = trimmedReference.split(/[?#]/, 1)[0]
+  if (!assetReferencePath) {
+    return null
+  }
+
+  const candidatePath = resolve(outputRoot, assetReferencePath)
+  if (!existsSync(candidatePath)) {
+    return null
+  }
+
+  const realCandidatePath = realpathSync(candidatePath)
+  if (!isPathInsideDirectory(realCandidatePath, outputRoot)) {
+    return null
+  }
+
+  const candidateStat = statSync(realCandidatePath)
+  if (!candidateStat.isFile()) {
+    return null
+  }
+
+  const mediaType = getPreviewAssetMediaType(realCandidatePath)
+  if (!mediaType) {
+    return null
+  }
+
+  return `data:${mediaType};base64,${readFileSync(realCandidatePath).toString('base64')}`
+}
+
+function getPreviewAssetMediaType(path: string): string | null {
+  switch (extname(path).toLowerCase()) {
+    case '.png':
+      return 'image/png'
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.webp':
+      return 'image/webp'
+    case '.gif':
+      return 'image/gif'
+    case '.svg':
+      return 'image/svg+xml'
+    case '.css':
+      return 'text/css'
+    case '.js':
+    case '.mjs':
+      return 'text/javascript'
+    default:
+      return null
   }
 }
 

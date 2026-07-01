@@ -68,6 +68,7 @@ export interface ScreencoderJobPreview {
   jobId: string
   htmlPath: string
   htmlUrl: string
+  previewHtml: string
   html: string
   sourcePath: string | null
   source: string | null

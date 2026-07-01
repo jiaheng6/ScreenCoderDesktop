@@ -5,6 +5,7 @@ import type {
   ScreencoderModelProviderInput,
   ScreencoderModelProviderRecord
 } from '../global'
+import { selectPreferredModel } from '../model-selection'
 
 interface ModelSettingsProps {
   selectedModel: ScreencoderModelConfigRecord | null
@@ -48,12 +49,10 @@ export function ModelSettings({ selectedModel, onModelChange }: ModelSettingsPro
         window.screencoder.listProviders(),
         window.screencoder.listModels()
       ])
-      const nextSelectedModel =
-        (nextSelectedModelId
-          ? nextModels.find((model) => model.id === nextSelectedModelId)
-          : undefined) ??
-        nextModels[0] ??
-        null
+      const requestedModel = nextSelectedModelId
+        ? nextModels.find((model) => model.id === nextSelectedModelId) ?? null
+        : selectedModel
+      const nextSelectedModel = selectPreferredModel(nextModels, requestedModel)
       const nextSelectedProvider =
         nextProviders.find((provider) => provider.id === nextSelectedModel?.providerId) ??
         nextProviders[0] ??

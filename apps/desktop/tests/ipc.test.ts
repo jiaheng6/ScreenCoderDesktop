@@ -685,10 +685,18 @@ describe('desktop IPC 白名单 API', () => {
     const outputDir = join(directory, 'job-output')
     const finalHtmlPath = join(outputDir, 'final.html')
     const sourcePath = join(outputDir, 'ScreenCoderPage.tsx')
+    const assetDir = join(outputDir, 'cropped_images')
+    const assetPath = join(assetDir, 'ph0.png')
     const jobStore = createFakeJobStore()
 
     mkdirSync(outputDir)
-    writeFileSync(finalHtmlPath, '<main>最终页面</main>', 'utf8')
+    mkdirSync(assetDir)
+    writeFileSync(
+      finalHtmlPath,
+      '<main><img src="cropped_images/ph0.png"><img src="https://example.com/avatar.png"></main>',
+      'utf8'
+    )
+    writeFileSync(assetPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
     writeFileSync(sourcePath, 'export function ScreenCoderPage() {}', 'utf8')
     const job = jobStore.createJob({
       inputPath: join(outputDir, 'input.png'),
@@ -712,7 +720,9 @@ describe('desktop IPC 白名单 API', () => {
         jobId: job.id,
         htmlPath: finalHtmlPath,
         htmlUrl: pathToFileURL(finalHtmlPath).href,
-        html: '<main>最终页面</main>',
+        html: '<main><img src="cropped_images/ph0.png"><img src="https://example.com/avatar.png"></main>',
+        previewHtml:
+          '<main><img src="data:image/png;base64,iVBORw=="><img src="https://example.com/avatar.png"></main>',
         sourcePath,
         source: 'export function ScreenCoderPage() {}'
       })
