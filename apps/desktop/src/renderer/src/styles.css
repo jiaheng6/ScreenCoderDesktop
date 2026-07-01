@@ -1,0 +1,61 @@
+:root {
+  color: #1f2937;
+  background: #f6f7fb;
+  font-family:
+    "Microsoft YaHei",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Noto Sans CJK SC",
+    Arial,
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 1024px;
+  min-height: 720px;
+  margin: 0;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.workspace {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  padding: 48px;
+}
+
+.intro {
+  width: min(720px, 100%);
+  border: 1px solid #d8dee9;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 48px;
+  box-shadow: 0 12px 32px rgb(15 23 42 / 8%);
+}
+
+.intro h1 {
+  margin: 0;
+  color: #111827;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.intro p {
+  margin: 16px 0 0;
+  color: #4b5563;
+  font-size: 18px;
+  line-height: 1.6;
+}
