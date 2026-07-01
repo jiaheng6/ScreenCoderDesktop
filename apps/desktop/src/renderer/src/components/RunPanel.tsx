@@ -13,7 +13,9 @@ interface RunPanelProps {
   pageKind: ScreencoderPageKind
   onTargetFrameworkChange: (targetFramework: ScreencoderTargetFramework) => void
   onPageKindChange: (pageKind: ScreencoderPageKind) => void
-  onJobCreated: (job: ScreencoderJobRecord) => Promise<void> | void
+  onRunStarted: (job: ScreencoderJobRecord) => void
+  onJobUpdated: (job: ScreencoderJobRecord) => Promise<void> | void
+  onRunLog: (message: string) => void
 }
 
 const targetFrameworkOptions: Array<{ value: ScreencoderTargetFramework; label: string }> = [
@@ -24,7 +26,7 @@ const targetFrameworkOptions: Array<{ value: ScreencoderTargetFramework; label: 
 ]
 
 const pageKindOptions: Array<{ value: ScreencoderPageKind; label: string }> = [
-  { value: 'web', label: 'Web' },
+  { value: 'web', label: '网页' },
   { value: 'mobile', label: '移动端' },
   { value: 'custom', label: '自定义' }
 ]
@@ -36,18 +38,20 @@ export function RunPanel({
   pageKind,
   onTargetFrameworkChange,
   onPageKindChange,
-  onJobCreated
+  onRunStarted,
+  onJobUpdated,
+  onRunLog
 }: RunPanelProps): JSX.Element {
-  const [isCreating, setIsCreating] = useState(false)
+  const [isRunning, setIsRunning] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
-  async function handleCreateJob(): Promise<void> {
+  async function handleRunPipeline(): Promise<void> {
     if (!selectedPath) {
       setMessage('请先选择截图文件。')
       return
     }
 
-    setIsCreating(true)
+    setIsRunning(true)
     setMessage(null)
 
     try {
@@ -58,12 +62,26 @@ export function RunPanel({
         targetFramework,
         pageKind
       })
-      await onJobCreated(job)
-      setMessage(`已创建任务：${job.id.slice(0, 8)}`)
+
+      await onJobUpdated(job)
+      onRunStarted(job)
+      onRunLog(`开始运行流水线：${job.id}`)
+
+      const completedJob = await window.screencoder.runJob(job.id)
+      await onJobUpdated(completedJob)
+
+      const resultMessage =
+        completedJob.status === 'succeeded'
+          ? `流水线运行完成：${completedJob.id}`
+          : `流水线运行失败：${completedJob.id}`
+      onRunLog(resultMessage)
+      setMessage(resultMessage)
     } catch (error) {
-      setMessage(getErrorMessage(error))
+      const errorMessage = getErrorMessage(error)
+      onRunLog(`运行失败：${errorMessage}`)
+      setMessage(errorMessage)
     } finally {
-      setIsCreating(false)
+      setIsRunning(false)
     }
   }
 
@@ -71,8 +89,8 @@ export function RunPanel({
     <section className="panel run-panel" aria-labelledby="run-panel-title">
       <div className="panel-header">
         <div>
-          <h2 id="run-panel-title">创建任务</h2>
-          <p>设置目标输出</p>
+          <h2 id="run-panel-title">运行流水线</h2>
+          <p>设置目标输出并启动 Python Worker</p>
         </div>
       </div>
 
@@ -111,10 +129,10 @@ export function RunPanel({
       <button
         className="create-job-button"
         type="button"
-        onClick={handleCreateJob}
-        disabled={isCreating || !selectedPath}
+        onClick={handleRunPipeline}
+        disabled={isRunning || !selectedPath}
       >
-        {isCreating ? '创建中' : '创建任务'}
+        {isRunning ? '运行中' : '运行流水线'}
       </button>
 
       {message ? <p className="inline-message">{message}</p> : null}
@@ -123,5 +141,5 @@ export function RunPanel({
 }
 
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : '创建任务失败'
+  return error instanceof Error ? error.message : '运行流水线失败'
 }

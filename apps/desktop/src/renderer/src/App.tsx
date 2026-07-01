@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { HistoryPanel } from './components/HistoryPanel'
+import { LogPanel } from './components/LogPanel'
 import { ModelSettings } from './components/ModelSettings'
 import { PreviewPanel } from './components/PreviewPanel'
 import { RunPanel } from './components/RunPanel'
 import { UploadPanel } from './components/UploadPanel'
 import './styles.css'
 import type {
+  ScreencoderJobEventPayload,
   ScreencoderJobRecord,
   ScreencoderModelProfileInput,
   ScreencoderPageKind,
@@ -29,6 +31,12 @@ function App(): JSX.Element {
   const [targetFramework, setTargetFramework] = useState<ScreencoderTargetFramework>('html')
   const [pageKind, setPageKind] = useState<ScreencoderPageKind>('web')
   const [modelProfile, setModelProfile] = useState<ScreencoderModelProfileInput>(defaultProfile)
+  const [activeJobId, setActiveJobId] = useState<string | null>(null)
+  const [logs, setLogs] = useState<string[]>([])
+
+  const appendLog = useCallback((message: string): void => {
+    setLogs((currentLogs) => [...currentLogs, message].slice(-200))
+  }, [])
 
   const loadJobs = useCallback(async (): Promise<void> => {
     setIsHistoryLoading(true)
@@ -48,13 +56,30 @@ function App(): JSX.Element {
     void loadJobs()
   }, [loadJobs])
 
-  const handleJobCreated = useCallback(
+  useEffect(() => {
+    return window.screencoder.onJobEvent((payload) => {
+      setActiveJobId(payload.jobId)
+      appendLog(formatJobEventPayload(payload))
+    })
+  }, [appendLog])
+
+  const handleJobUpdated = useCallback(
     async (job: ScreencoderJobRecord): Promise<void> => {
+      setActiveJobId(job.id)
       setJobs((currentJobs) => [job, ...currentJobs.filter((currentJob) => currentJob.id !== job.id)])
       await loadJobs()
     },
     [loadJobs]
   )
+
+  const handleRunStarted = useCallback((job: ScreencoderJobRecord): void => {
+    setActiveJobId(job.id)
+    setLogs([])
+    setJobs((currentJobs) => [
+      { ...job, status: 'running' },
+      ...currentJobs.filter((currentJob) => currentJob.id !== job.id)
+    ])
+  }, [])
 
   return (
     <main className="workspace-shell">
@@ -75,13 +100,24 @@ function App(): JSX.Element {
           pageKind={pageKind}
           onTargetFrameworkChange={setTargetFramework}
           onPageKindChange={setPageKind}
-          onJobCreated={handleJobCreated}
+          onRunStarted={handleRunStarted}
+          onJobUpdated={handleJobUpdated}
+          onRunLog={appendLog}
         />
+        <LogPanel activeJobId={activeJobId} logs={logs} />
       </section>
 
       <PreviewPanel selectedPath={selectedPath} />
     </main>
   )
+}
+
+function formatJobEventPayload(payload: ScreencoderJobEventPayload): string {
+  try {
+    return JSON.stringify(payload)
+  } catch {
+    return '无法序列化运行事件'
+  }
 }
 
 function getErrorMessage(error: unknown): string {

@@ -10,6 +10,7 @@ import {
   type ShowOpenDialog
 } from '../src/main/ipc'
 import type { CreateJobInput, JobRecord } from '../src/main/jobs/job-store'
+import type { RunWorkerInput } from '../src/main/jobs/job-runner'
 import type {
   ModelProfileInput,
   ModelProfileRecord
@@ -26,14 +27,19 @@ function createTempWorkspace(prefix: string): { directory: string; cleanup: () =
 
 function createFakeJobStore(): {
   createdInputs: CreateJobInput[]
+  statusUpdates: Array<{ id: string; status: JobRecord['status'] }>
   listJobs: () => JobRecord[]
   createJob: (input: CreateJobInput) => JobRecord
+  getJob: (id: string) => JobRecord | undefined
+  updateStatus: (id: string, status: JobRecord['status']) => void
 } {
   const records: JobRecord[] = []
   const createdInputs: CreateJobInput[] = []
+  const statusUpdates: Array<{ id: string; status: JobRecord['status'] }> = []
 
   return {
     createdInputs,
+    statusUpdates,
     listJobs: () => records,
     createJob: (input) => {
       createdInputs.push(input)
@@ -47,8 +53,50 @@ function createFakeJobStore(): {
       }
       records.unshift(record)
       return record
+    },
+    getJob: (id) => records.find((record) => record.id === id),
+    updateStatus: (id, status) => {
+      statusUpdates.push({ id, status })
+      const record = records.find((currentRecord) => currentRecord.id === id)
+      if (record) {
+        record.status = status
+        record.updatedAt = '2026-07-01T00:00:01.000Z'
+      }
     }
   }
+}
+
+type FakeIpcEvent = {
+  sender: {
+    send: (channel: string, payload: unknown) => void
+  }
+}
+
+type RunJobHandler = (event: FakeIpcEvent, jobId: string) => Promise<JobRecord>
+
+function getRunJobHandler(handlers: ReturnType<typeof createIpcHandlers>): RunJobHandler {
+  return handlers['jobs:run' as keyof typeof handlers] as unknown as RunJobHandler
+}
+
+function createFakeIpcEvent(sentMessages: Array<{ channel: string; payload: unknown }>): FakeIpcEvent {
+  return {
+    sender: {
+      send: (channel, payload) => {
+        sentMessages.push({ channel, payload })
+      }
+    }
+  }
+}
+
+function createQueuedJob(jobStore: ReturnType<typeof createFakeJobStore>): JobRecord {
+  return jobStore.createJob({
+    inputPath: 'C:\\workspace\\jobs\\job-1\\screen.png',
+    outputDir: 'C:\\workspace\\jobs\\job-1',
+    provider: 'mock-provider',
+    model: 'mock-model',
+    targetFramework: 'react',
+    pageKind: 'mobile'
+  })
 }
 
 function createFakeModelProfileStore(): {
@@ -291,5 +339,125 @@ describe('desktop IPC 白名单 API', () => {
         apiKeyRef: 'sk-should-not-store'
       })
     ).toThrow('密钥引用必须使用 secure-store:<id> 格式')
+  })
+
+  it('运行任务时会更新状态、调用 Worker 并转发实时事件', async () => {
+    const jobStore = createFakeJobStore()
+    const job = createQueuedJob(jobStore)
+    const sentMessages: Array<{ channel: string; payload: unknown }> = []
+    let workerInput: RunWorkerInput | undefined
+    const handlers = createIpcHandlers({
+      jobStore,
+      modelProfileStore: createFakeModelProfileStore(),
+      workspaceDir: 'C:\\workspace',
+      showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+      pythonExecutable: 'C:\\Python\\python.exe',
+      workerCwd: 'C:\\repo\\python',
+      runWorker: async (input) => {
+        workerInput = input
+        input.onEvent({ type: 'stage', stage: 'start', status: 'running' })
+        return 0
+      }
+    })
+
+    const result = await getRunJobHandler(handlers)(createFakeIpcEvent(sentMessages), job.id)
+
+    expect(workerInput).toMatchObject({
+      pythonExecutable: 'C:\\Python\\python.exe',
+      workerCwd: 'C:\\repo\\python',
+      inputPath: job.inputPath,
+      outputDir: job.outputDir,
+      provider: job.provider,
+      model: job.model,
+      target: job.targetFramework,
+      pageKind: job.pageKind
+    })
+    expect(sentMessages).toEqual([
+      {
+        channel: 'jobs:event',
+        payload: {
+          jobId: job.id,
+          event: { type: 'stage', stage: 'start', status: 'running' }
+        }
+      }
+    ])
+    expect(jobStore.statusUpdates).toEqual([
+      { id: job.id, status: 'running' },
+      { id: job.id, status: 'succeeded' }
+    ])
+    expect(result).toMatchObject({ id: job.id, status: 'succeeded' })
+  })
+
+  it('Worker 返回非零退出码时会把任务标记为失败并返回失败记录', async () => {
+    const jobStore = createFakeJobStore()
+    const job = createQueuedJob(jobStore)
+    const handlers = createIpcHandlers({
+      jobStore,
+      modelProfileStore: createFakeModelProfileStore(),
+      workspaceDir: 'C:\\workspace',
+      showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+      pythonExecutable: 'C:\\Python\\python.exe',
+      workerCwd: 'C:\\repo\\python',
+      runWorker: async (input) => {
+        input.onEvent({ type: 'stage', stage: 'final', status: 'failed' })
+        return 2
+      }
+    })
+
+    const result = await getRunJobHandler(handlers)(createFakeIpcEvent([]), job.id)
+
+    expect(jobStore.statusUpdates).toEqual([
+      { id: job.id, status: 'running' },
+      { id: job.id, status: 'failed' }
+    ])
+    expect(result).toMatchObject({ id: job.id, status: 'failed' })
+  })
+
+  it('Worker 抛出异常时会发送错误事件并把任务标记为失败', async () => {
+    const jobStore = createFakeJobStore()
+    const job = createQueuedJob(jobStore)
+    const sentMessages: Array<{ channel: string; payload: unknown }> = []
+    const handlers = createIpcHandlers({
+      jobStore,
+      modelProfileStore: createFakeModelProfileStore(),
+      workspaceDir: 'C:\\workspace',
+      showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+      pythonExecutable: 'C:\\Python\\python.exe',
+      workerCwd: 'C:\\repo\\python',
+      runWorker: async () => {
+        throw new Error('Worker 启动失败')
+      }
+    })
+
+    const result = await getRunJobHandler(handlers)(createFakeIpcEvent(sentMessages), job.id)
+
+    expect(sentMessages).toEqual([
+      {
+        channel: 'jobs:event',
+        payload: {
+          jobId: job.id,
+          event: { type: 'error', message: 'Worker 启动失败' }
+        }
+      }
+    ])
+    expect(jobStore.statusUpdates).toEqual([
+      { id: job.id, status: 'running' },
+      { id: job.id, status: 'failed' }
+    ])
+    expect(result).toMatchObject({ id: job.id, status: 'failed' })
+  })
+
+  it('运行不存在的任务时会抛出中文错误', async () => {
+    const handlers = createIpcHandlers({
+      jobStore: createFakeJobStore(),
+      modelProfileStore: createFakeModelProfileStore(),
+      workspaceDir: 'C:\\workspace',
+      showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+      runWorker: async () => 0
+    })
+
+    await expect(getRunJobHandler(handlers)(createFakeIpcEvent([]), 'missing-job')).rejects.toThrow(
+      '任务不存在'
+    )
   })
 })

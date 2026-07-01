@@ -73,7 +73,7 @@ body {
   display: grid;
   min-width: 0;
   max-height: calc(100vh - 32px);
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto auto minmax(180px, 1fr);
   gap: 16px;
   overflow: auto;
 }
@@ -91,8 +91,15 @@ body {
 
 .upload-panel,
 .model-panel,
-.run-panel {
+.run-panel,
+.log-panel {
   overflow: hidden;
+}
+
+.log-panel {
+  display: grid;
+  min-height: 220px;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 button,
@@ -312,6 +319,24 @@ button:disabled {
 .create-job-button {
   width: calc(100% - 32px);
   margin: 18px 16px 16px;
+}
+
+.log-stream {
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  border-top: 1px solid #edf0f4;
+  background: #101827;
+  padding: 12px 14px;
+  color: #d8f3dc;
+  font-family:
+    Consolas,
+    "SFMono-Regular",
+    monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .history-list {

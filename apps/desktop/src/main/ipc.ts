@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { copyFileSync, mkdirSync, realpathSync, statSync } from 'node:fs'
-import { basename, extname, isAbsolute, join } from 'node:path'
-import type { CreateJobInput, JobRecord, JobStore } from './jobs/job-store'
+import { spawnSync } from 'node:child_process'
+import { copyFileSync, existsSync, mkdirSync, realpathSync, statSync } from 'node:fs'
+import { basename, extname, isAbsolute, join, resolve } from 'node:path'
+import { runWorker as defaultRunWorker, type RunWorkerInput, type WorkerEvent } from './jobs/job-runner'
+import type { CreateJobInput, JobRecord, JobStatus, JobStore } from './jobs/job-store'
 import type {
   ModelProfileInput,
   ModelProfileRecord,
@@ -12,12 +14,21 @@ export const IPC_CHANNELS = {
   selectImage: 'dialog:select-image',
   listJobs: 'jobs:list',
   createJobFromFile: 'jobs:create-from-file',
+  runJob: 'jobs:run',
   listProfiles: 'profiles:list',
   saveProfile: 'profiles:save'
 } as const
 
+export const JOB_EVENT_CHANNEL = 'jobs:event'
+
 export interface IpcMainLike {
   handle: (channel: string, listener: (_event: unknown, ...args: unknown[]) => unknown) => void
+}
+
+export interface IpcInvokeEventLike {
+  sender: {
+    send: (channel: string, payload: unknown) => void
+  }
 }
 
 export interface ShowOpenDialogOptions {
@@ -36,17 +47,22 @@ export interface ShowOpenDialogResult {
 export type ShowOpenDialog = (options: ShowOpenDialogOptions) => Promise<ShowOpenDialogResult>
 
 interface CreateIpcHandlersInput {
-  jobStore: Pick<JobStore, 'createJob' | 'listJobs'>
+  jobStore: Pick<JobStore, 'createJob' | 'listJobs' | 'getJob' | 'updateStatus'>
   modelProfileStore: Pick<ModelProfileStore, 'listProfiles' | 'saveProfile'>
   workspaceDir: string
   showOpenDialog: ShowOpenDialog
   createJobDirectoryId?: () => string
+  runWorker?: (input: RunWorkerInput) => Promise<number>
+  pythonExecutable?: string
+  workerCwd?: string
+  appPath?: string
 }
 
 type IpcHandlers = {
   [IPC_CHANNELS.selectImage]: () => Promise<string | null>
   [IPC_CHANNELS.listJobs]: () => JobRecord[]
   [IPC_CHANNELS.createJobFromFile]: (input: CreateJobRequest) => JobRecord
+  [IPC_CHANNELS.runJob]: (event: IpcInvokeEventLike, jobId: string) => Promise<JobRecord>
   [IPC_CHANNELS.listProfiles]: () => ModelProfileRecord[]
   [IPC_CHANNELS.saveProfile]: (input: ModelProfileInput) => ModelProfileRecord
 }
@@ -66,6 +82,9 @@ export interface CreateJobRequest {
 
 export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
   const createJobDirectoryId = input.createJobDirectoryId ?? randomUUID
+  const runWorker = input.runWorker ?? defaultRunWorker
+  const pythonExecutable = input.pythonExecutable ?? resolvePythonExecutable()
+  const workerCwd = input.workerCwd ?? resolveWorkerCwd(input.appPath)
 
   return {
     async [IPC_CHANNELS.selectImage]() {
@@ -98,6 +117,39 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
 
       return input.jobStore.createJob(createInput)
     },
+    async [IPC_CHANNELS.runJob](event: IpcInvokeEventLike, jobId: string) {
+      const normalizedJobId = validateJobId(jobId)
+      const job = input.jobStore.getJob(normalizedJobId)
+
+      if (!job) {
+        throw new Error('任务不存在')
+      }
+
+      input.jobStore.updateStatus(job.id, 'running')
+
+      try {
+        const exitCode = await runWorker({
+          pythonExecutable,
+          workerCwd,
+          inputPath: job.inputPath,
+          outputDir: job.outputDir,
+          provider: job.provider,
+          model: job.model,
+          target: job.targetFramework,
+          pageKind: job.pageKind,
+          onEvent: (workerEvent) => sendJobEvent(event, job.id, workerEvent)
+        })
+
+        return updateJobStatus(input.jobStore, job.id, exitCode === 0 ? 'succeeded' : 'failed')
+      } catch (error) {
+        const failedJob = updateJobStatus(input.jobStore, job.id, 'failed')
+        sendJobEvent(event, job.id, {
+          type: 'error',
+          message: getErrorMessage(error)
+        })
+        return failedJob
+      }
+    },
     [IPC_CHANNELS.listProfiles]() {
       return input.modelProfileStore.listProfiles()
     },
@@ -115,10 +167,31 @@ export function registerIpcHandlers(input: CreateIpcHandlersInput & { ipcMain: I
   input.ipcMain.handle(IPC_CHANNELS.createJobFromFile, (_event, createJobInput) =>
     handlers[IPC_CHANNELS.createJobFromFile](validateCreateJobRequest(createJobInput))
   )
+  input.ipcMain.handle(IPC_CHANNELS.runJob, (event, jobId) =>
+    handlers[IPC_CHANNELS.runJob](event as IpcInvokeEventLike, validateJobId(jobId))
+  )
   input.ipcMain.handle(IPC_CHANNELS.listProfiles, () => handlers[IPC_CHANNELS.listProfiles]())
   input.ipcMain.handle(IPC_CHANNELS.saveProfile, (_event, profileInput) =>
     handlers[IPC_CHANNELS.saveProfile](validateModelProfileInput(profileInput))
   )
+}
+
+export function resolveWorkerCwd(appPath = process.cwd()): string {
+  const candidateRoots = [
+    appPath,
+    join(appPath, '..', '..'),
+    process.cwd(),
+    join(process.cwd(), '..', '..')
+  ]
+
+  for (const root of Array.from(new Set(candidateRoots.map((candidate) => resolve(candidate))))) {
+    const pythonDirectory = join(root, 'python')
+    if (existsSync(pythonDirectory)) {
+      return pythonDirectory
+    }
+  }
+
+  return join(resolve(appPath), 'python')
 }
 
 function validateCreateJobRequest(input: unknown): CreateJobRequest {
@@ -179,6 +252,67 @@ function validateModelProfileInput(input: unknown): ModelProfileInput {
     model: validateNonEmptyString(input.model, '模型'),
     apiKeyRef: validateApiKeyRef(input.apiKeyRef)
   }
+}
+
+function validateJobId(value: unknown): string {
+  return validateNonEmptyString(value, '任务 ID')
+}
+
+function updateJobStatus(
+  jobStore: Pick<JobStore, 'getJob' | 'updateStatus'>,
+  jobId: string,
+  status: JobStatus
+): JobRecord {
+  jobStore.updateStatus(jobId, status)
+
+  const updatedJob = jobStore.getJob(jobId)
+  if (!updatedJob) {
+    throw new Error('任务不存在')
+  }
+
+  return updatedJob
+}
+
+function sendJobEvent(event: IpcInvokeEventLike, jobId: string, workerEvent: WorkerEvent): void {
+  event.sender.send(JOB_EVENT_CHANNEL, {
+    jobId,
+    event: workerEvent
+  })
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Worker 运行失败'
+}
+
+function resolvePythonExecutable(): string {
+  const configuredPython = process.env.SCREENCODER_PYTHON?.trim()
+  if (configuredPython) {
+    return configuredPython
+  }
+
+  if (process.platform === 'win32') {
+    const launcherResult = spawnSync('py', ['-3', '-c', 'import sys; print(sys.executable)'], {
+      encoding: 'utf8'
+    })
+
+    if (launcherResult.status === 0 && launcherResult.stdout.trim()) {
+      return launcherResult.stdout.trim()
+    }
+  }
+
+  const candidates = process.platform === 'win32' ? ['python', 'python3'] : ['python3', 'python']
+
+  for (const candidate of candidates) {
+    const result = spawnSync(candidate, ['-c', 'import sys; print(sys.executable)'], {
+      encoding: 'utf8'
+    })
+
+    if (result.status === 0 && result.stdout.trim()) {
+      return result.stdout.trim()
+    }
+  }
+
+  return process.platform === 'win32' ? 'python' : 'python3'
 }
 
 function validateApiKeyRef(value: unknown): string {
