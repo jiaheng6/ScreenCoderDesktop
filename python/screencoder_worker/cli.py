@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Sequence
 
 from .contracts import RunConfig
-from .pipeline import run_pipeline
+from .contracts import stage_event
+from .pipeline import WorkerError, run_pipeline
 
 
 TARGET_CHOICES = ("html", "vue2", "vue3", "react")
@@ -41,9 +42,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             target=args.target,
             page_kind=args.page_kind,
         )
-        for event in run_pipeline(config):
-            print(json.dumps(event, ensure_ascii=False), flush=True)
-        return 0
+        try:
+            for event in run_pipeline(config):
+                _print_event(event)
+            return 0
+        except (OSError, WorkerError) as exc:
+            _print_event(stage_event("final", "failed", error=str(exc)))
+            return 1
 
     parser.error("未知命令")
     return 2
@@ -52,6 +57,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _configure_stdout() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+
+
+def _print_event(event: dict[str, object]) -> None:
+    print(json.dumps(event, ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":

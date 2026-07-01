@@ -28,13 +28,13 @@ def test_run_pipeline_复制输入并生成最终产物(tmp_path: Path) -> None:
 
     assert copied_input.read_bytes() == input_bytes
     assert final_html.exists()
-    assert "ScreenCoderDesktop Mock Output" in final_html.read_text(encoding="utf-8")
-    assert events[0] == {"type": "stage", "stage": "prepare", "status": "running"}
-    assert {"type": "artifact", "name": "input", "path": str(copied_input)} in events
-    assert {"type": "artifact", "name": "final", "path": str(final_html)} in events
-    assert events[-1] == {
-        "type": "stage",
-        "stage": "final",
-        "status": "done",
-        "output": str(final_html),
-    }
+    assert "ScreenCoderDesktop 模拟输出" in final_html.read_text(encoding="utf-8")
+    assert events == [
+        {"type": "stage", "stage": "prepare", "status": "running"},
+        {"type": "artifact", "name": "input", "path": str(copied_input)},
+        {"type": "stage", "stage": "prepare", "status": "done"},
+        {"type": "stage", "stage": "html_generation", "status": "running"},
+        {"type": "artifact", "name": "final", "path": str(final_html)},
+        {"type": "stage", "stage": "html_generation", "status": "done"},
+        {"type": "stage", "stage": "final", "status": "done", "output": str(final_html)},
+    ]

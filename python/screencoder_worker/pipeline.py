@@ -6,6 +6,10 @@ from shutil import copyfile
 from .contracts import RunConfig, artifact_event, stage_event
 
 
+class WorkerError(RuntimeError):
+    pass
+
+
 def run_pipeline(config: RunConfig) -> Iterator[dict[str, object]]:
     output_dir = Path(config.output_dir)
     input_path = Path(config.input_path)
@@ -13,6 +17,13 @@ def run_pipeline(config: RunConfig) -> Iterator[dict[str, object]]:
     final_html = output_dir / "final.html"
 
     yield stage_event("prepare", "running")
+    if not input_path.exists():
+        raise WorkerError(f"输入文件不存在：{input_path}")
+    if not input_path.is_file():
+        raise WorkerError(f"输入路径不是文件：{input_path}")
+    if output_dir.exists() and not output_dir.is_dir():
+        raise WorkerError(f"输出路径不是目录：{output_dir}")
+
     output_dir.mkdir(parents=True, exist_ok=True)
     copyfile(input_path, copied_input)
     yield artifact_event("input", copied_input)
@@ -36,11 +47,11 @@ def _render_mock_html(config: RunConfig) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ScreenCoderDesktop Mock Output</title>
+  <title>ScreenCoderDesktop 模拟输出</title>
 </head>
 <body>
   <main>
-    <h1>ScreenCoderDesktop Mock Output</h1>
+    <h1>ScreenCoderDesktop 模拟输出</h1>
     <p>这是 Python Worker 模拟流水线生成的 HTML 产物。</p>
     <dl>
       <dt>服务提供方</dt>
