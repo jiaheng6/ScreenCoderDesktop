@@ -9,25 +9,25 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "test": "vitest run",
-    "lint": "tsc --noEmit"
+    "lint": "tsc -b --noEmit --pretty false"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
     "better-sqlite3": "^11.8.1",
-    "electron": "^33.2.1",
-    "electron-vite": "^2.3.0",
+    "electron": "^43.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "uuid": "^11.0.3"
   },
   "devDependencies": {
+    "@vitejs/plugin-react": "^5.2.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@types/uuid": "^10.0.0",
+    "electron-vite": "^5.0.0",
     "typescript": "^5.7.2",
-    "vite": "^6.0.5",
-    "vitest": "^2.1.8"
+    "vite": "^7.3.6",
+    "vitest": "^4.1.9"
   }
 }

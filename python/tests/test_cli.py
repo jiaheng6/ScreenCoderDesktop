@@ -28,6 +28,7 @@ def test_cli_run_输出_jsonl_事件并生成_final_html(tmp_path: Path) -> None
             "--page-kind",
             "web",
         ],
+        cwd=Path(__file__).resolve().parents[1],
         check=False,
         capture_output=True,
         text=True,

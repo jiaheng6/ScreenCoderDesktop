@@ -8,7 +8,7 @@
     "build": "pnpm --filter @screencoder/desktop build",
     "test": "pnpm --filter @screencoder/desktop test",
     "lint": "pnpm --filter @screencoder/desktop lint",
-    "python:test": "cd python && python -m pytest"
+    "python:test": "node scripts/run-python-tests.mjs"
   },
   "packageManager": "pnpm@9.15.4"
 }

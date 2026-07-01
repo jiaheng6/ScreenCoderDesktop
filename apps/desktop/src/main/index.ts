@@ -1,6 +1,27 @@
 import { app, BrowserWindow } from 'electron'
 import { join } from 'node:path'
 
+function getDevRendererUrl(): string | null {
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL
+
+  if (!rendererUrl || app.isPackaged) {
+    return null
+  }
+
+  try {
+    const url = new URL(rendererUrl)
+    const localHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
+
+    if ((url.protocol === 'http:' || url.protocol === 'https:') && localHosts.has(url.hostname)) {
+      return rendererUrl
+    }
+  } catch {
+    return null
+  }
+
+  return null
+}
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1280,
@@ -15,7 +36,7 @@ function createWindow(): void {
     }
   })
 
-  const rendererUrl = process.env.ELECTRON_RENDERER_URL
+  const rendererUrl = getDevRendererUrl()
 
   if (rendererUrl) {
     mainWindow.loadURL(rendererUrl)

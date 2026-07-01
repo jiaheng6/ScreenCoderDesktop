@@ -4,6 +4,8 @@ node_modules/
 venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+*.tsbuildinfo
 
 # 构建产物
 dist/

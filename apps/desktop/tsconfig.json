@@ -1,15 +1,8 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "noEmit": true,
-    "types": ["node"]
-  },
-  "include": [
-    "electron.vite.config.ts",
-    "src/**/*.ts",
-    "src/**/*.tsx",
-    "tests/**/*.ts"
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.main.json" },
+    { "path": "./tsconfig.preload.json" },
+    { "path": "./tsconfig.renderer.json" }
   ]
 }
