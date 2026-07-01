@@ -80,7 +80,12 @@ type FakeIpcEvent = {
 
 type RunJobHandler = (event: FakeIpcEvent, jobId: string) => Promise<JobRecord>
 type ReadJobPreviewHandler = (jobId: string) => JobPreview
-type ReadImagePreviewHandler = (inputPath: string) => { path: string; dataUrl: string }
+type ReadImagePreviewHandler = (inputPath: string) => {
+  path: string
+  dataUrl: string
+  imageWidth: number | null
+  imageHeight: number | null
+}
 type TestModelConnectionHandler = (modelId: string) => Promise<{
   ok: boolean
   status: number | null
@@ -139,6 +144,22 @@ function createQueuedJob(jobStore: ReturnType<typeof createFakeJobStore>): JobRe
     targetFramework: 'react',
     pageKind: 'mobile'
   })
+}
+
+function createPngHeader(width: number, height: number): Buffer {
+  const buffer = Buffer.alloc(33)
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buffer, 0)
+  buffer.writeUInt32BE(13, 8)
+  buffer.write('IHDR', 12, 'ascii')
+  buffer.writeUInt32BE(width, 16)
+  buffer.writeUInt32BE(height, 20)
+  buffer[24] = 8
+  buffer[25] = 2
+  buffer[26] = 0
+  buffer[27] = 0
+  buffer[28] = 0
+
+  return buffer
 }
 
 function createFakeModelProfileStore(): {
@@ -403,7 +424,8 @@ describe('desktop IPC 白名单 API', () => {
   it('读取图片预览时会返回 data URL，避免 renderer 直接访问本地文件', () => {
     const { directory, cleanup } = createTempWorkspace('screencoder-image-preview-')
     const inputPath = join(directory, 'screen.png')
-    writeFileSync(inputPath, Buffer.from('mock image bytes'))
+    const imageBytes = createPngHeader(390, 844)
+    writeFileSync(inputPath, imageBytes)
 
     try {
       const handlers = createIpcHandlers({
@@ -415,7 +437,9 @@ describe('desktop IPC 白名单 API', () => {
 
       expect(getReadImagePreviewHandler(handlers)(inputPath)).toEqual({
         path: inputPath,
-        dataUrl: `data:image/png;base64,${Buffer.from('mock image bytes').toString('base64')}`
+        dataUrl: `data:image/png;base64,${imageBytes.toString('base64')}`,
+        imageWidth: 390,
+        imageHeight: 844
       })
     } finally {
       cleanup()
@@ -685,12 +709,14 @@ describe('desktop IPC 白名单 API', () => {
     const outputDir = join(directory, 'job-output')
     const finalHtmlPath = join(outputDir, 'final.html')
     const sourcePath = join(outputDir, 'ScreenCoderPage.tsx')
+    const inputPath = join(outputDir, 'input.png')
     const assetDir = join(outputDir, 'cropped_images')
     const assetPath = join(assetDir, 'ph0.png')
     const jobStore = createFakeJobStore()
 
     mkdirSync(outputDir)
     mkdirSync(assetDir)
+    writeFileSync(inputPath, createPngHeader(1440, 900))
     writeFileSync(
       finalHtmlPath,
       '<main><img src="cropped_images/ph0.png"><img src="https://example.com/avatar.png"></main>',
@@ -699,7 +725,7 @@ describe('desktop IPC 白名单 API', () => {
     writeFileSync(assetPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
     writeFileSync(sourcePath, 'export function ScreenCoderPage() {}', 'utf8')
     const job = jobStore.createJob({
-      inputPath: join(outputDir, 'input.png'),
+      inputPath,
       outputDir,
       modelConfigId: 'model-1',
       provider: 'mock-provider',
@@ -720,6 +746,8 @@ describe('desktop IPC 白名单 API', () => {
         jobId: job.id,
         htmlPath: finalHtmlPath,
         htmlUrl: pathToFileURL(finalHtmlPath).href,
+        imageWidth: 1440,
+        imageHeight: 900,
         html: '<main><img src="cropped_images/ph0.png"><img src="https://example.com/avatar.png"></main>',
         previewHtml:
           '<main><img src="data:image/png;base64,iVBORw=="><img src="https://example.com/avatar.png"></main>',

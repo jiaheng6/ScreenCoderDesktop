@@ -69,6 +69,8 @@ export interface ScreencoderJobPreview {
   htmlPath: string
   htmlUrl: string
   previewHtml: string
+  imageWidth: number | null
+  imageHeight: number | null
   html: string
   sourcePath: string | null
   source: string | null
@@ -77,6 +79,8 @@ export interface ScreencoderJobPreview {
 export interface ScreencoderImagePreview {
   path: string
   dataUrl: string
+  imageWidth: number | null
+  imageHeight: number | null
 }
 
 export interface ScreencoderModelConnectionTestResult {

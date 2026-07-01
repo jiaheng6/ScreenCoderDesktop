@@ -1,14 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 
 export type PreviewContent =
   | { type: 'empty' }
-  | { type: 'image'; path: string; dataUrl: string }
+  | {
+      type: 'image'
+      path: string
+      dataUrl: string
+      imageWidth: number | null
+      imageHeight: number | null
+    }
   | {
       type: 'html'
       jobId: string
       htmlPath: string
       htmlUrl: string
       previewHtml: string
+      imageWidth: number | null
+      imageHeight: number | null
       html: string
       sourcePath: string | null
       source: string | null
@@ -40,22 +48,30 @@ export function PreviewPanel({ preview }: PreviewPanelProps): JSX.Element {
   }
 
   if (preview.type === 'html') {
+    const sizeLabel = formatImageSize(preview.imageWidth, preview.imageHeight)
+    const stageClassName = getPreviewStageClassName(preview.imageWidth, preview.imageHeight)
+
     return (
       <section className="panel preview-panel" aria-labelledby="preview-panel-title">
         <div className="panel-header">
           <div>
             <h2 id="preview-panel-title">最终预览</h2>
-            <p>任务：{preview.jobId}</p>
+            <p>{sizeLabel ? `任务：${preview.jobId}，原始尺寸：${sizeLabel}` : `任务：${preview.jobId}`}</p>
           </div>
         </div>
 
         <div className="preview-canvas">
-          <iframe
-            className="preview-frame"
-            sandbox="allow-scripts"
-            srcDoc={preview.previewHtml}
-            title="最终 HTML 预览"
-          />
+          <div
+            className={stageClassName}
+            style={getPreviewStageStyle(preview.imageWidth, preview.imageHeight)}
+          >
+            <iframe
+              className="preview-frame"
+              sandbox="allow-scripts"
+              srcDoc={preview.previewHtml}
+              title="最终 HTML 预览"
+            />
+          </div>
         </div>
 
         <div className="path-block" title={preview.htmlPath}>
@@ -73,12 +89,15 @@ export function PreviewPanel({ preview }: PreviewPanelProps): JSX.Element {
     )
   }
 
+  const sizeLabel = formatImageSize(preview.imageWidth, preview.imageHeight)
+  const stageClassName = getPreviewStageClassName(preview.imageWidth, preview.imageHeight)
+
   return (
     <section className="panel preview-panel" aria-labelledby="preview-panel-title">
       <div className="panel-header">
         <div>
           <h2 id="preview-panel-title">预览</h2>
-          <p>截图画布</p>
+          <p>{sizeLabel ? `截图画布，原始尺寸：${sizeLabel}` : '截图画布'}</p>
         </div>
       </div>
 
@@ -86,11 +105,17 @@ export function PreviewPanel({ preview }: PreviewPanelProps): JSX.Element {
         {imageError ? (
           <div className="empty-state">{imageError}</div>
         ) : (
-          <img
-            src={preview.dataUrl}
-            alt="当前截图预览"
-            onError={() => setImageError('图片无法预览，请确认文件仍可访问。')}
-          />
+          <div
+            className={stageClassName}
+            style={getPreviewStageStyle(preview.imageWidth, preview.imageHeight)}
+          >
+            <img
+              className="preview-image"
+              src={preview.dataUrl}
+              alt="当前截图预览"
+              onError={() => setImageError('图片无法预览，请确认文件仍可访问。')}
+            />
+          </div>
         )}
       </div>
 
@@ -100,4 +125,35 @@ export function PreviewPanel({ preview }: PreviewPanelProps): JSX.Element {
       </div>
     </section>
   )
+}
+
+function getPreviewStageClassName(width: number | null, height: number | null): string {
+  return hasPreviewSize(width, height) ? 'preview-stage' : 'preview-stage preview-stage-fluid'
+}
+
+function getPreviewStageStyle(width: number | null, height: number | null): CSSProperties | undefined {
+  if (!isPositiveNumber(width) || !isPositiveNumber(height)) {
+    return undefined
+  }
+
+  return {
+    width,
+    height
+  }
+}
+
+function hasPreviewSize(width: number | null, height: number | null): boolean {
+  return isPositiveNumber(width) && isPositiveNumber(height)
+}
+
+function isPositiveNumber(value: number | null): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
+function formatImageSize(width: number | null, height: number | null): string | null {
+  if (!hasPreviewSize(width, height)) {
+    return null
+  }
+
+  return `${width} × ${height}`
 }

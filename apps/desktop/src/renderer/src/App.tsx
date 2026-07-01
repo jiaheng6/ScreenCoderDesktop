@@ -96,7 +96,9 @@ function App(): JSX.Element {
         setPreviewContent({
           type: 'image',
           path: imagePreview.path,
-          dataUrl: imagePreview.dataUrl
+          dataUrl: imagePreview.dataUrl,
+          imageWidth: imagePreview.imageWidth,
+          imageHeight: imagePreview.imageHeight
         })
       } catch (error) {
         setPreviewContent({ type: 'empty' })
@@ -130,6 +132,8 @@ function App(): JSX.Element {
           htmlPath: preview.htmlPath,
           htmlUrl: preview.htmlUrl,
           previewHtml: preview.previewHtml,
+          imageWidth: preview.imageWidth,
+          imageHeight: preview.imageHeight,
           html: preview.html,
           sourcePath: preview.sourcePath,
           source: preview.source
