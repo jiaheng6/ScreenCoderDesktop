@@ -22,17 +22,20 @@ body {
   min-width: 1180px;
   min-height: 720px;
   margin: 0;
+  overflow: hidden;
 }
 
 #root {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 720px;
 }
 
 .workspace-shell {
   display: grid;
   grid-template-columns: 300px minmax(380px, 460px) minmax(420px, 1fr);
   gap: 16px;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 720px;
   padding: 16px;
 }
 
@@ -72,10 +75,10 @@ body {
 .control-column {
   display: grid;
   min-width: 0;
+  height: calc(100vh - 32px);
   max-height: calc(100vh - 32px);
-  grid-template-rows: auto auto auto minmax(180px, 1fr);
-  gap: 16px;
-  overflow: auto;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .history-panel,
@@ -100,6 +103,110 @@ body {
   display: grid;
   min-height: 220px;
   grid-template-rows: auto minmax(0, 1fr);
+}
+
+.workflow-panel {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.workflow-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  border-bottom: 1px solid #e5e9ef;
+  background: #f8fafc;
+  padding: 8px;
+}
+
+.workflow-tab {
+  min-width: 0;
+  border-color: transparent;
+  background: transparent;
+  color: #405066;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.workflow-tab.is-active {
+  border-color: #8fb3d9;
+  background: #ffffff;
+  color: #174ea6;
+  box-shadow: 0 1px 3px rgb(23 32 51 / 8%);
+}
+
+.workflow-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #edf0f4;
+  padding: 10px 16px;
+  color: #596579;
+  font-size: 12px;
+}
+
+.workflow-summary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-tab-panel {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.workflow-tab-panel > .panel {
+  min-height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workflow-tab-panel > .panel > .panel-header {
+  min-height: 0;
+  border-bottom: 1px solid #edf0f4;
+  padding: 0 0 14px;
+}
+
+.workflow-tab-panel .drop-zone {
+  margin: 16px 0;
+}
+
+.workflow-tab-panel .path-block {
+  margin: 0 0 16px;
+}
+
+.workflow-tab-panel .settings-form {
+  padding: 16px 0 0;
+}
+
+.workflow-tab-panel .control-group {
+  padding: 16px 0 0;
+}
+
+.workflow-tab-panel .create-job-button {
+  width: 100%;
+  margin: 18px 0 16px;
+}
+
+.workflow-tab-panel .inline-message {
+  margin: 0 0 16px;
+}
+
+.workflow-tab-panel .log-panel {
+  height: 100%;
+}
+
+.workflow-tab-panel .log-stream {
+  min-height: 280px;
 }
 
 button,
@@ -296,7 +403,7 @@ button:disabled {
   padding: 4px;
 }
 
-.control-group:nth-of-type(2) .segmented-control {
+.page-kind-control .segmented-control {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 

@@ -94,7 +94,7 @@ export function RunPanel({
         </div>
       </div>
 
-      <div className="control-group">
+      <div className="control-group target-framework-control">
         <span className="field-label">目标框架</span>
         <div className="segmented-control" role="group" aria-label="目标框架">
           {targetFrameworkOptions.map((option) => (
@@ -110,7 +110,7 @@ export function RunPanel({
         </div>
       </div>
 
-      <div className="control-group">
+      <div className="control-group page-kind-control">
         <span className="field-label">页面类型</span>
         <div className="segmented-control" role="group" aria-label="页面类型">
           {pageKindOptions.map((option) => (

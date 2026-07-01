@@ -16,6 +16,15 @@ import type {
   ScreencoderTargetFramework
 } from './global'
 
+type WorkflowTab = 'upload' | 'model' | 'run' | 'log'
+
+const workflowTabs: Array<{ id: WorkflowTab; label: string }> = [
+  { id: 'upload', label: '截图' },
+  { id: 'model', label: '模型' },
+  { id: 'run', label: '运行' },
+  { id: 'log', label: '日志' }
+]
+
 const defaultProfile: ScreencoderModelProfileInput = {
   name: 'OpenCode Go',
   provider: 'opencode-go',
@@ -35,6 +44,7 @@ function App(): JSX.Element {
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [logs, setLogs] = useState<string[]>([])
   const [previewContent, setPreviewContent] = useState<PreviewContent>({ type: 'empty' })
+  const [activeWorkflowTab, setActiveWorkflowTab] = useState<WorkflowTab>('upload')
 
   const appendLog = useCallback((message: string): void => {
     setLogs((currentLogs) => [...currentLogs, message].slice(-200))
@@ -68,6 +78,7 @@ function App(): JSX.Element {
   const handleSelectPath = useCallback((path: string): void => {
     setSelectedPath(path)
     setPreviewContent({ type: 'image', path })
+    setActiveWorkflowTab('run')
   }, [])
 
   const openJobPreview = useCallback(
@@ -116,11 +127,14 @@ function App(): JSX.Element {
     setActiveJobId(job.id)
     setLogs([])
     setPreviewContent({ type: 'image', path: job.inputPath })
+    setActiveWorkflowTab('log')
     setJobs((currentJobs) => [
       { ...job, status: 'running' },
       ...currentJobs.filter((currentJob) => currentJob.id !== job.id)
     ])
   }, [])
+
+  const selectedFileName = selectedPath ? selectedPath.split(/[\\/]/).pop() : null
 
   return (
     <main className="workspace-shell">
@@ -133,20 +147,55 @@ function App(): JSX.Element {
       />
 
       <section className="control-column" aria-label="任务控制">
-        <UploadPanel selectedPath={selectedPath} onSelectPath={handleSelectPath} />
-        <ModelSettings profile={modelProfile} onProfileChange={setModelProfile} />
-        <RunPanel
-          selectedPath={selectedPath}
-          modelProfile={modelProfile}
-          targetFramework={targetFramework}
-          pageKind={pageKind}
-          onTargetFrameworkChange={setTargetFramework}
-          onPageKindChange={setPageKind}
-          onRunStarted={handleRunStarted}
-          onJobUpdated={handleJobUpdated}
-          onRunLog={appendLog}
-        />
-        <LogPanel activeJobId={activeJobId} logs={logs} />
+        <section className="panel workflow-panel" aria-label="任务工作区">
+          <div className="workflow-tabs" role="tablist" aria-label="任务步骤">
+            {workflowTabs.map((tab) => (
+              <button
+                key={tab.id}
+                className={activeWorkflowTab === tab.id ? 'workflow-tab is-active' : 'workflow-tab'}
+                type="button"
+                role="tab"
+                aria-selected={activeWorkflowTab === tab.id}
+                onClick={() => setActiveWorkflowTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="workflow-summary">
+            <span title={selectedPath ?? undefined}>
+              {selectedFileName ? `截图：${selectedFileName}` : '未选择截图'}
+            </span>
+            <span>
+              {targetFramework.toUpperCase()} /{' '}
+              {pageKind === 'web' ? '网页' : pageKind === 'mobile' ? '移动端' : '自定义'}
+            </span>
+          </div>
+
+          <div className="workflow-tab-panel" role="tabpanel">
+            {activeWorkflowTab === 'upload' ? (
+              <UploadPanel selectedPath={selectedPath} onSelectPath={handleSelectPath} />
+            ) : null}
+            {activeWorkflowTab === 'model' ? (
+              <ModelSettings profile={modelProfile} onProfileChange={setModelProfile} />
+            ) : null}
+            {activeWorkflowTab === 'run' ? (
+              <RunPanel
+                selectedPath={selectedPath}
+                modelProfile={modelProfile}
+                targetFramework={targetFramework}
+                pageKind={pageKind}
+                onTargetFrameworkChange={setTargetFramework}
+                onPageKindChange={setPageKind}
+                onRunStarted={handleRunStarted}
+                onJobUpdated={handleJobUpdated}
+                onRunLog={appendLog}
+              />
+            ) : null}
+            {activeWorkflowTab === 'log' ? <LogPanel activeJobId={activeJobId} logs={logs} /> : null}
+          </div>
+        </section>
       </section>
 
       <PreviewPanel preview={previewContent} />
