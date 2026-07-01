@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   createIpcHandlers,
   IPC_CHANNELS,
   registerIpcHandlers,
+  resolvePythonExecutable,
   type IpcMainLike,
   type JobPreview,
   type ShowOpenDialog
@@ -118,6 +119,15 @@ function createFakeIpcEvent(sentMessages: Array<{ channel: string; payload: unkn
   }
 }
 
+function restoreEnvValue(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name]
+    return
+  }
+
+  process.env[name] = value
+}
+
 function createQueuedJob(jobStore: ReturnType<typeof createFakeJobStore>): JobRecord {
   return jobStore.createJob({
     inputPath: 'C:\\workspace\\jobs\\job-1\\screen.png',
@@ -215,6 +225,30 @@ function createFakeModelProfileStore(): {
 }
 
 describe('desktop IPC 白名单 API', () => {
+  it('解析 Python 解释器时会优先使用 ScreenCoder core 旁边的虚拟环境', () => {
+    const { directory, cleanup } = createTempWorkspace('screencoder-python-resolution-')
+    const previousCoreDir = process.env.SCREENCODER_CORE_DIR
+    const previousPython = process.env.SCREENCODER_PYTHON
+    const coreDir = join(directory, 'ScreenCoder')
+    const pythonPath =
+      process.platform === 'win32'
+        ? join(coreDir, '.venv', 'Scripts', 'python.exe')
+        : join(coreDir, '.venv', 'bin', 'python')
+
+    mkdirSync(dirname(pythonPath), { recursive: true })
+    writeFileSync(pythonPath, '')
+    process.env.SCREENCODER_CORE_DIR = coreDir
+    delete process.env.SCREENCODER_PYTHON
+
+    try {
+      expect(resolvePythonExecutable()).toBe(pythonPath)
+    } finally {
+      restoreEnvValue('SCREENCODER_CORE_DIR', previousCoreDir)
+      restoreEnvValue('SCREENCODER_PYTHON', previousPython)
+      cleanup()
+    }
+  })
+
   it('只注册允许的 IPC channel', () => {
     const registeredChannels: string[] = []
     const ipcMain: IpcMainLike = {

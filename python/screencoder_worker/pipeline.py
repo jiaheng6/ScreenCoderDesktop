@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from queue import Empty, Queue
 from shutil import copy2, copyfile, copytree, rmtree
+import importlib.util
 import os
 import subprocess
 import sys
@@ -36,6 +37,17 @@ ROOT_DIRS_TO_COPY = {
     "UIED",
 }
 
+REQUIRED_RUNTIME_MODULES = {
+    "cv2": "opencv-python",
+    "PIL": "Pillow",
+    "bs4": "beautifulsoup4",
+    "requests": "requests",
+    "numpy": "numpy",
+    "playwright": "playwright",
+    "sklearn": "scikit-learn",
+    "scipy": "scipy",
+}
+
 
 def run_pipeline(config: RunConfig) -> Iterator[dict[str, object]]:
     output_dir = Path(config.output_dir)
@@ -59,6 +71,12 @@ def run_pipeline(config: RunConfig) -> Iterator[dict[str, object]]:
     core_dir = resolve_screencoder_core_dir()
     _prepare_runtime_core(core_dir, runtime_dir, config, input_path)
     yield artifact_event("runtime", runtime_dir)
+    yield {
+        "type": "environment",
+        "python": sys.executable,
+        "core": str(core_dir),
+    }
+    _assert_runtime_dependencies(runtime_dir)
     yield stage_event("prepare", "done")
 
     yield stage_event("screencoder", "running")
@@ -132,6 +150,26 @@ def _prepare_runtime_core(
     (runtime_dir / "data" / "output").mkdir(parents=True, exist_ok=True)
     data_input_dir.mkdir(parents=True, exist_ok=True)
     copyfile(input_path, data_input_dir / "test1.png")
+
+
+def _assert_runtime_dependencies(runtime_dir: Path) -> None:
+    if not (runtime_dir / "block_parsor.py").exists():
+        return
+
+    missing_modules = [
+        f"{module}（安装包：{package}）"
+        for module, package in REQUIRED_RUNTIME_MODULES.items()
+        if importlib.util.find_spec(module) is None
+    ]
+
+    if missing_modules:
+        raise WorkerError(
+            "Python 环境缺少 ScreenCoder 运行依赖："
+            + "、".join(missing_modules)
+            + f"。当前 Python：{sys.executable}。"
+            + "请执行 `<当前 Python> -m pip install -r screencoder-core/requirements.txt`，"
+            + "或设置 SCREENCODER_PYTHON 指向已安装依赖的虚拟环境。"
+        )
 
 
 def _ignore_runtime_noise(_directory: str, names: list[str]) -> set[str]:

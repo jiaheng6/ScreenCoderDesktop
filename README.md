@@ -54,4 +54,16 @@ pnpm --filter @screencoder/desktop dev
 
 运行前需要在“模型”页保存提供商、API Key 和模型，再保存模型配置。OpenCode Go 默认使用 `https://opencode.ai/zen/go/v1` 和 `minimax-m3`。
 
-Python 依赖需要按 `screencoder-core/requirements.txt` 安装到 Worker 使用的 Python 环境中。可通过 `SCREENCODER_PYTHON` 指定解释器路径。
+Python 依赖需要按 `screencoder-core/requirements.txt` 安装到 Worker 使用的 Python 环境中。解释器选择优先级如下：
+
+1. `SCREENCODER_PYTHON` 指定的解释器。
+2. `SCREENCODER_CORE_DIR/.venv` 中的虚拟环境。
+3. 仓库相邻 `ScreenCoder/.venv` 中的虚拟环境。
+4. 系统 `py -3`、`python` 或 `python3`。
+
+本机已有原项目虚拟环境时，可以这样启动：
+
+```powershell
+$env:SCREENCODER_CORE_DIR="E:\workSpace\ScreenCoder"
+pnpm --filter @screencoder/desktop dev
+```

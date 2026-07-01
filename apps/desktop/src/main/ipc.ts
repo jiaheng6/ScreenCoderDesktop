@@ -117,7 +117,7 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
   const createJobDirectoryId = input.createJobDirectoryId ?? randomUUID
   const runWorker = input.runWorker ?? defaultRunWorker
   const modelConnectionTester = input.modelConnectionTester ?? defaultModelConnectionTester
-  const pythonExecutable = input.pythonExecutable ?? resolvePythonExecutable()
+  const pythonExecutable = input.pythonExecutable ?? resolvePythonExecutable(input.appPath)
   const workerCwd = input.workerCwd ?? resolveWorkerCwd(input.appPath)
 
   return {
@@ -498,10 +498,15 @@ function isPathInsideDirectory(targetPath: string, directoryPath: string): boole
   return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))
 }
 
-function resolvePythonExecutable(): string {
+export function resolvePythonExecutable(appPath = process.cwd()): string {
   const configuredPython = process.env.SCREENCODER_PYTHON?.trim()
   if (configuredPython) {
     return configuredPython
+  }
+
+  const virtualEnvPython = resolveVirtualEnvPythonExecutable(appPath)
+  if (virtualEnvPython) {
+    return virtualEnvPython
   }
 
   if (process.platform === 'win32') {
@@ -527,6 +532,46 @@ function resolvePythonExecutable(): string {
   }
 
   return process.platform === 'win32' ? 'python' : 'python3'
+}
+
+function resolveVirtualEnvPythonExecutable(appPath: string): string | null {
+  const candidateCoreDirs = resolveCandidateCoreDirs(appPath)
+  const executableRelativePath =
+    process.platform === 'win32'
+      ? join('.venv', 'Scripts', 'python.exe')
+      : join('.venv', 'bin', 'python')
+
+  for (const coreDir of candidateCoreDirs) {
+    const candidate = join(coreDir, executableRelativePath)
+    if (existsSync(candidate)) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+function resolveCandidateCoreDirs(appPath: string): string[] {
+  const packagedResourcesPath = getPackagedResourcesPath()
+  const roots = [
+    process.env.SCREENCODER_CORE_DIR,
+    packagedResourcesPath ? join(packagedResourcesPath, 'screencoder-core') : undefined,
+    appPath,
+    process.cwd(),
+    join(process.cwd(), '..'),
+    join(process.cwd(), '..', '..'),
+    join(process.cwd(), '..', '..', '..')
+  ].filter((candidate): candidate is string => Boolean(candidate))
+  const candidates: string[] = []
+
+  for (const root of roots) {
+    candidates.push(root)
+    candidates.push(join(root, 'screencoder-core'))
+    candidates.push(join(root, 'ScreenCoder'))
+    candidates.push(join(root, '..', 'ScreenCoder'))
+  }
+
+  return Array.from(new Set(candidates.map((candidate) => resolve(candidate))))
 }
 
 function validateEnumValue(value: unknown, allowedValues: Set<string>, label: string): string {
