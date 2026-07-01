@@ -9,3 +9,8 @@ At this initial planning stage, this repository does not copy upstream ScreenCod
 If upstream source files are copied or modified in later development, copyright notices, license
 headers, NOTICE content when present, and modification notices must be preserved according to
 the Apache License, Version 2.0.
+
+ScreenCoderDesktop source code in this repository is authored for this project unless a file
+header states otherwise.
+
+Future copied or modified ScreenCoder files must retain their original Apache License 2.0 notices.

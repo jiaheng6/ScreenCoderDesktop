@@ -2,11 +2,11 @@
 
 ## 背景
 
-ScreenCoderDesktop 计划基于 `leigest519/ScreenCoder` 的技术路线做桌面端产品化。上游 ScreenCoder 使用 Apache License 2.0，本仓库也采用 Apache License 2.0，以降低后续集成和二次开发的许可证冲突。
+ScreenCoderDesktop 基于 `leigest519/ScreenCoder` 的技术路线做桌面端产品化。上游 ScreenCoder 使用 Apache License 2.0，本仓库也采用 Apache License 2.0，以降低后续集成和二次开发的许可证冲突。
 
 ## 当前仓库状态
 
-当前仓库只包含技术方案、合规说明、许可证和仓库说明文件，尚未复制上游 ScreenCoder 源码。
+当前仓库包含 Electron 桌面端、Python Worker 模拟流水线、历史记录、模型配置、日志流、最终预览和目标框架导出器。当前实现未直接复制上游 ScreenCoder 源码。
 
 ## Apache License 2.0 合规要求
 
@@ -28,6 +28,7 @@ ScreenCoderDesktop 计划基于 `leigest519/ScreenCoder` 的技术路线做桌�
 - 若重写而非复制上游代码，在对应文档中说明设计参考来源，但不保留不准确的版权声明。
 - 新增 Electron、任务管理、历史管理、导出器等代码统一按本仓库 Apache License 2.0 授权。
 - 发布打包产物时同时包含 `LICENSE`、`NOTICE` 和第三方依赖许可证清单。
+- 任何模型 API Key、密钥引用和本地配置不得提交到仓库。
 
 ## 需要特别注意的地方
 
