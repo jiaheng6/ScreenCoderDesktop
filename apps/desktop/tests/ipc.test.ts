@@ -146,7 +146,13 @@ describe('desktop IPC 白名单 API', () => {
         createJobDirectoryId: () => 'job-directory-1'
       })
 
-      const created = handlers[IPC_CHANNELS.createJobFromFile](inputPath)
+      const created = handlers[IPC_CHANNELS.createJobFromFile]({
+        inputPath,
+        provider: 'opencode-go',
+        model: 'minimax-m3',
+        targetFramework: 'react',
+        pageKind: 'mobile'
+      })
       const outputDir = join(workspaceDir, 'jobs', 'job-directory-1')
       const copiedInputPath = join(outputDir, basename(inputPath))
 
@@ -154,19 +160,19 @@ describe('desktop IPC 白名单 API', () => {
         {
           inputPath: copiedInputPath,
           outputDir,
-          provider: 'mock',
-          model: 'mock-model',
-          targetFramework: 'html',
-          pageKind: 'web'
+          provider: 'opencode-go',
+          model: 'minimax-m3',
+          targetFramework: 'react',
+          pageKind: 'mobile'
         }
       ])
       expect(created).toMatchObject({
         inputPath: copiedInputPath,
         outputDir,
-        provider: 'mock',
-        model: 'mock-model',
-        targetFramework: 'html',
-        pageKind: 'web',
+        provider: 'opencode-go',
+        model: 'minimax-m3',
+        targetFramework: 'react',
+        pageKind: 'mobile',
         status: 'queued'
       })
       expect(existsSync(copiedInputPath)).toBe(true)
@@ -191,10 +197,27 @@ describe('desktop IPC 白名单 API', () => {
     mkdirSync(imageDirectory)
 
     try {
-      expect(() => handlers[IPC_CHANNELS.createJobFromFile](textPath)).toThrow(
+      const createTextJob = (): JobRecord =>
+        handlers[IPC_CHANNELS.createJobFromFile]({
+          inputPath: textPath,
+          provider: 'mock',
+          model: 'mock-model',
+          targetFramework: 'html',
+          pageKind: 'web'
+        })
+      const createDirectoryJob = (): JobRecord =>
+        handlers[IPC_CHANNELS.createJobFromFile]({
+          inputPath: imageDirectory,
+          provider: 'mock',
+          model: 'mock-model',
+          targetFramework: 'html',
+          pageKind: 'web'
+        })
+
+      expect(createTextJob).toThrow(
         '只支持 png、jpg、jpeg、webp 图片'
       )
-      expect(() => handlers[IPC_CHANNELS.createJobFromFile](imageDirectory)).toThrow(
+      expect(createDirectoryJob).toThrow(
         '截图路径必须指向文件'
       )
     } finally {
@@ -259,5 +282,14 @@ describe('desktop IPC 白名单 API', () => {
         apiKeyRef: 'secure-store:mock'
       })
     ).toThrow('基础地址必须是 HTTP 或 HTTPS URL')
+    expect(() =>
+      handlers[IPC_CHANNELS.saveProfile]({
+        name: '本地 Mock',
+        provider: 'mock',
+        baseUrl: 'http://127.0.0.1:3000/v1',
+        model: 'mock-model',
+        apiKeyRef: 'sk-should-not-store'
+      })
+    ).toThrow('密钥引用必须使用 secure-store:<id> 格式')
   })
 })

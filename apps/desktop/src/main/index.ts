@@ -33,7 +33,7 @@ function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
-    minWidth: 1024,
+    minWidth: 1180,
     minHeight: 720,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

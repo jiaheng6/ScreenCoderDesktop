@@ -46,13 +46,23 @@ interface CreateIpcHandlersInput {
 type IpcHandlers = {
   [IPC_CHANNELS.selectImage]: () => Promise<string | null>
   [IPC_CHANNELS.listJobs]: () => JobRecord[]
-  [IPC_CHANNELS.createJobFromFile]: (inputPath: string) => JobRecord
+  [IPC_CHANNELS.createJobFromFile]: (input: CreateJobRequest) => JobRecord
   [IPC_CHANNELS.listProfiles]: () => ModelProfileRecord[]
   [IPC_CHANNELS.saveProfile]: (input: ModelProfileInput) => ModelProfileRecord
 }
 
 const allowedImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+const allowedTargetFrameworks = new Set(['html', 'vue2', 'vue3', 'react'])
+const allowedPageKinds = new Set(['web', 'mobile', 'custom'])
 const maxInputFileBytes = 20 * 1024 * 1024
+
+export interface CreateJobRequest {
+  inputPath: string
+  provider: string
+  model: string
+  targetFramework: CreateJobInput['targetFramework']
+  pageKind: CreateJobInput['pageKind']
+}
 
 export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
   const createJobDirectoryId = input.createJobDirectoryId ?? randomUUID
@@ -69,8 +79,9 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
     [IPC_CHANNELS.listJobs]() {
       return input.jobStore.listJobs()
     },
-    [IPC_CHANNELS.createJobFromFile](inputPath: string) {
-      const safeInputPath = validateInputImagePath(inputPath)
+    [IPC_CHANNELS.createJobFromFile](jobInput: CreateJobRequest) {
+      const request = validateCreateJobRequest(jobInput)
+      const safeInputPath = validateInputImagePath(request.inputPath)
       const outputDir = join(input.workspaceDir, 'jobs', createJobDirectoryId())
       mkdirSync(outputDir, { recursive: true })
       const copiedInputPath = join(outputDir, basename(safeInputPath))
@@ -79,10 +90,10 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
       const createInput: CreateJobInput = {
         inputPath: copiedInputPath,
         outputDir,
-        provider: 'mock',
-        model: 'mock-model',
-        targetFramework: 'html',
-        pageKind: 'web'
+        provider: request.provider,
+        model: request.model,
+        targetFramework: request.targetFramework,
+        pageKind: request.pageKind
       }
 
       return input.jobStore.createJob(createInput)
@@ -101,13 +112,34 @@ export function registerIpcHandlers(input: CreateIpcHandlersInput & { ipcMain: I
 
   input.ipcMain.handle(IPC_CHANNELS.selectImage, () => handlers[IPC_CHANNELS.selectImage]())
   input.ipcMain.handle(IPC_CHANNELS.listJobs, () => handlers[IPC_CHANNELS.listJobs]())
-  input.ipcMain.handle(IPC_CHANNELS.createJobFromFile, (_event, inputPath) =>
-    handlers[IPC_CHANNELS.createJobFromFile](assertString(inputPath, 'inputPath'))
+  input.ipcMain.handle(IPC_CHANNELS.createJobFromFile, (_event, createJobInput) =>
+    handlers[IPC_CHANNELS.createJobFromFile](validateCreateJobRequest(createJobInput))
   )
   input.ipcMain.handle(IPC_CHANNELS.listProfiles, () => handlers[IPC_CHANNELS.listProfiles]())
   input.ipcMain.handle(IPC_CHANNELS.saveProfile, (_event, profileInput) =>
     handlers[IPC_CHANNELS.saveProfile](validateModelProfileInput(profileInput))
   )
+}
+
+function validateCreateJobRequest(input: unknown): CreateJobRequest {
+  if (!isPlainObject(input)) {
+    throw new Error('任务配置必须是对象')
+  }
+
+  const targetFramework = validateEnumValue(
+    input.targetFramework,
+    allowedTargetFrameworks,
+    '目标框架'
+  ) as CreateJobRequest['targetFramework']
+  const pageKind = validateEnumValue(input.pageKind, allowedPageKinds, '页面类型') as CreateJobRequest['pageKind']
+
+  return {
+    inputPath: assertString(input.inputPath, 'inputPath'),
+    provider: validateNonEmptyString(input.provider, '服务提供商'),
+    model: validateNonEmptyString(input.model, '模型'),
+    targetFramework,
+    pageKind
+  }
 }
 
 function validateInputImagePath(inputPath: string): string {
@@ -145,8 +177,26 @@ function validateModelProfileInput(input: unknown): ModelProfileInput {
     provider: validateNonEmptyString(input.provider, '服务提供商'),
     baseUrl: validateHttpUrl(input.baseUrl),
     model: validateNonEmptyString(input.model, '模型'),
-    apiKeyRef: validateNonEmptyString(input.apiKeyRef, '密钥引用')
+    apiKeyRef: validateApiKeyRef(input.apiKeyRef)
   }
+}
+
+function validateApiKeyRef(value: unknown): string {
+  const apiKeyRef = validateNonEmptyString(value, '密钥引用')
+  if (!/^secure-store:[a-zA-Z0-9._:-]+$/.test(apiKeyRef)) {
+    throw new Error('密钥引用必须使用 secure-store:<id> 格式')
+  }
+
+  return apiKeyRef
+}
+
+function validateEnumValue(value: unknown, allowedValues: Set<string>, label: string): string {
+  const text = assertString(value, label)
+  if (!allowedValues.has(text)) {
+    throw new Error(`${label}不受支持`)
+  }
+
+  return text
 }
 
 function validateNonEmptyString(value: unknown, label: string): string {

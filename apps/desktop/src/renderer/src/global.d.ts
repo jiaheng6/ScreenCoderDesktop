@@ -1,19 +1,21 @@
-export {}
+export type ScreencoderJobStatus = 'queued' | 'running' | 'succeeded' | 'failed'
+export type ScreencoderPageKind = 'web' | 'mobile' | 'custom'
+export type ScreencoderTargetFramework = 'html' | 'vue2' | 'vue3' | 'react'
 
-interface ScreencoderJobRecord {
+export interface ScreencoderJobRecord {
   id: string
   inputPath: string
   outputDir: string
   provider: string
   model: string
-  targetFramework: string
-  pageKind: string
-  status: string
+  targetFramework: ScreencoderTargetFramework
+  pageKind: ScreencoderPageKind
+  status: ScreencoderJobStatus
   createdAt: string
   updatedAt: string
 }
 
-interface ScreencoderModelProfileInput {
+export interface ScreencoderModelProfileInput {
   name: string
   provider: string
   baseUrl: string
@@ -21,10 +23,18 @@ interface ScreencoderModelProfileInput {
   apiKeyRef: string
 }
 
-interface ScreencoderModelProfileRecord extends ScreencoderModelProfileInput {
+export interface ScreencoderModelProfileRecord extends ScreencoderModelProfileInput {
   id: string
   createdAt: string
   updatedAt: string
+}
+
+export interface ScreencoderCreateJobInput {
+  inputPath: string
+  provider: string
+  model: string
+  targetFramework: ScreencoderTargetFramework
+  pageKind: ScreencoderPageKind
 }
 
 declare global {
@@ -33,7 +43,7 @@ declare global {
       appVersion: string
       selectImage: () => Promise<string | null>
       listJobs: () => Promise<ScreencoderJobRecord[]>
-      createJobFromFile: (inputPath: string) => Promise<ScreencoderJobRecord>
+      createJobFromFile: (input: ScreencoderCreateJobInput) => Promise<ScreencoderJobRecord>
       listProfiles: () => Promise<ScreencoderModelProfileRecord[]>
       saveProfile: (
         input: ScreencoderModelProfileInput
