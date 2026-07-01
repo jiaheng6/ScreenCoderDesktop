@@ -44,6 +44,14 @@ export interface ScreencoderJobEventPayload {
   event: ScreencoderWorkerEvent
 }
 
+export interface ScreencoderJobPreview {
+  jobId: string
+  htmlPath: string
+  html: string
+  sourcePath: string | null
+  source: string | null
+}
+
 declare global {
   interface Window {
     screencoder: {
@@ -52,6 +60,7 @@ declare global {
       listJobs: () => Promise<ScreencoderJobRecord[]>
       createJobFromFile: (input: ScreencoderCreateJobInput) => Promise<ScreencoderJobRecord>
       runJob: (jobId: string) => Promise<ScreencoderJobRecord>
+      readJobPreview: (jobId: string) => Promise<ScreencoderJobPreview>
       onJobEvent: (callback: (payload: ScreencoderJobEventPayload) => void) => () => void
       listProfiles: () => Promise<ScreencoderModelProfileRecord[]>
       saveProfile: (

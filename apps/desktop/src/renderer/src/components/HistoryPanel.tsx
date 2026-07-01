@@ -5,6 +5,7 @@ interface HistoryPanelProps {
   isLoading: boolean
   errorMessage: string | null
   onRefresh: () => Promise<void> | void
+  onOpenJob: (job: ScreencoderJobRecord) => Promise<void> | void
 }
 
 const statusLabels: Record<ScreencoderJobStatus, string> = {
@@ -31,7 +32,8 @@ export function HistoryPanel({
   jobs,
   isLoading,
   errorMessage,
-  onRefresh
+  onRefresh,
+  onOpenJob
 }: HistoryPanelProps): JSX.Element {
   return (
     <aside className="panel history-panel" aria-labelledby="history-panel-title">
@@ -62,6 +64,11 @@ export function HistoryPanel({
             <div className="history-meta">
               <span>{frameworkLabels[job.targetFramework]}</span>
               <span>{pageKindLabels[job.pageKind]}</span>
+            </div>
+            <div className="history-actions">
+              <button className="secondary-button" type="button" onClick={() => void onOpenJob(job)}>
+                打开
+              </button>
             </div>
           </li>
         ))}

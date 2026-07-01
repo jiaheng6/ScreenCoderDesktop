@@ -7,6 +7,7 @@ import {
   IPC_CHANNELS,
   registerIpcHandlers,
   type IpcMainLike,
+  type JobPreview,
   type ShowOpenDialog
 } from '../src/main/ipc'
 import type { CreateJobInput, JobRecord } from '../src/main/jobs/job-store'
@@ -73,9 +74,16 @@ type FakeIpcEvent = {
 }
 
 type RunJobHandler = (event: FakeIpcEvent, jobId: string) => Promise<JobRecord>
+type ReadJobPreviewHandler = (jobId: string) => JobPreview
 
 function getRunJobHandler(handlers: ReturnType<typeof createIpcHandlers>): RunJobHandler {
   return handlers['jobs:run' as keyof typeof handlers] as unknown as RunJobHandler
+}
+
+function getReadJobPreviewHandler(
+  handlers: ReturnType<typeof createIpcHandlers>
+): ReadJobPreviewHandler {
+  return handlers['jobs:read-preview' as keyof typeof handlers] as unknown as ReadJobPreviewHandler
 }
 
 function createFakeIpcEvent(sentMessages: Array<{ channel: string; payload: unknown }>): FakeIpcEvent {
@@ -459,5 +467,73 @@ describe('desktop IPC 白名单 API', () => {
     await expect(getRunJobHandler(handlers)(createFakeIpcEvent([]), 'missing-job')).rejects.toThrow(
       '任务不存在'
     )
+  })
+
+  it('读取任务预览时会返回 final.html 和目标框架源码产物', () => {
+    const { directory, cleanup } = createTempWorkspace('screencoder-preview-')
+    const outputDir = join(directory, 'job-output')
+    const finalHtmlPath = join(outputDir, 'final.html')
+    const sourcePath = join(outputDir, 'ScreenCoderPage.tsx')
+    const jobStore = createFakeJobStore()
+
+    mkdirSync(outputDir)
+    writeFileSync(finalHtmlPath, '<main>最终页面</main>', 'utf8')
+    writeFileSync(sourcePath, 'export function ScreenCoderPage() {}', 'utf8')
+    const job = jobStore.createJob({
+      inputPath: join(outputDir, 'input.png'),
+      outputDir,
+      provider: 'mock-provider',
+      model: 'mock-model',
+      targetFramework: 'react',
+      pageKind: 'web'
+    })
+
+    try {
+      const handlers = createIpcHandlers({
+        jobStore,
+        modelProfileStore: createFakeModelProfileStore(),
+        workspaceDir: 'C:\\workspace',
+        showOpenDialog: async () => ({ canceled: true, filePaths: [] })
+      })
+
+      expect(getReadJobPreviewHandler(handlers)(job.id)).toEqual({
+        jobId: job.id,
+        htmlPath: finalHtmlPath,
+        html: '<main>最终页面</main>',
+        sourcePath,
+        source: 'export function ScreenCoderPage() {}'
+      })
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('读取任务预览时缺少 final.html 会抛出中文错误', () => {
+    const { directory, cleanup } = createTempWorkspace('screencoder-missing-preview-')
+    const outputDir = join(directory, 'job-output')
+    const jobStore = createFakeJobStore()
+
+    mkdirSync(outputDir)
+    const job = jobStore.createJob({
+      inputPath: join(outputDir, 'input.png'),
+      outputDir,
+      provider: 'mock-provider',
+      model: 'mock-model',
+      targetFramework: 'html',
+      pageKind: 'web'
+    })
+
+    try {
+      const handlers = createIpcHandlers({
+        jobStore,
+        modelProfileStore: createFakeModelProfileStore(),
+        workspaceDir: 'C:\\workspace',
+        showOpenDialog: async () => ({ canceled: true, filePaths: [] })
+      })
+
+      expect(() => getReadJobPreviewHandler(handlers)(job.id)).toThrow('最终预览文件不存在')
+    } finally {
+      cleanup()
+    }
   })
 })

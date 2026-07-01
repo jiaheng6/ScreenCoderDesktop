@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, realpathSync, statSync } from 'node:fs'
-import { basename, extname, isAbsolute, join, resolve } from 'node:path'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { runWorker as defaultRunWorker, type RunWorkerInput, type WorkerEvent } from './jobs/job-runner'
 import type { CreateJobInput, JobRecord, JobStatus, JobStore } from './jobs/job-store'
 import type {
@@ -15,6 +15,7 @@ export const IPC_CHANNELS = {
   listJobs: 'jobs:list',
   createJobFromFile: 'jobs:create-from-file',
   runJob: 'jobs:run',
+  readJobPreview: 'jobs:read-preview',
   listProfiles: 'profiles:list',
   saveProfile: 'profiles:save'
 } as const
@@ -46,6 +47,14 @@ export interface ShowOpenDialogResult {
 
 export type ShowOpenDialog = (options: ShowOpenDialogOptions) => Promise<ShowOpenDialogResult>
 
+export interface JobPreview {
+  jobId: string
+  htmlPath: string
+  html: string
+  sourcePath: string | null
+  source: string | null
+}
+
 interface CreateIpcHandlersInput {
   jobStore: Pick<JobStore, 'createJob' | 'listJobs' | 'getJob' | 'updateStatus'>
   modelProfileStore: Pick<ModelProfileStore, 'listProfiles' | 'saveProfile'>
@@ -63,6 +72,7 @@ type IpcHandlers = {
   [IPC_CHANNELS.listJobs]: () => JobRecord[]
   [IPC_CHANNELS.createJobFromFile]: (input: CreateJobRequest) => JobRecord
   [IPC_CHANNELS.runJob]: (event: IpcInvokeEventLike, jobId: string) => Promise<JobRecord>
+  [IPC_CHANNELS.readJobPreview]: (jobId: string) => JobPreview
   [IPC_CHANNELS.listProfiles]: () => ModelProfileRecord[]
   [IPC_CHANNELS.saveProfile]: (input: ModelProfileInput) => ModelProfileRecord
 }
@@ -150,6 +160,16 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
         return failedJob
       }
     },
+    [IPC_CHANNELS.readJobPreview](jobId: string) {
+      const normalizedJobId = validateJobId(jobId)
+      const job = input.jobStore.getJob(normalizedJobId)
+
+      if (!job) {
+        throw new Error('任务不存在')
+      }
+
+      return readJobPreview(job)
+    },
     [IPC_CHANNELS.listProfiles]() {
       return input.modelProfileStore.listProfiles()
     },
@@ -169,6 +189,9 @@ export function registerIpcHandlers(input: CreateIpcHandlersInput & { ipcMain: I
   )
   input.ipcMain.handle(IPC_CHANNELS.runJob, (event, jobId) =>
     handlers[IPC_CHANNELS.runJob](event as IpcInvokeEventLike, validateJobId(jobId))
+  )
+  input.ipcMain.handle(IPC_CHANNELS.readJobPreview, (_event, jobId) =>
+    handlers[IPC_CHANNELS.readJobPreview](validateJobId(jobId))
   )
   input.ipcMain.handle(IPC_CHANNELS.listProfiles, () => handlers[IPC_CHANNELS.listProfiles]())
   input.ipcMain.handle(IPC_CHANNELS.saveProfile, (_event, profileInput) =>
@@ -282,6 +305,97 @@ function sendJobEvent(event: IpcInvokeEventLike, jobId: string, workerEvent: Wor
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Worker 运行失败'
+}
+
+function readJobPreview(job: JobRecord): JobPreview {
+  const finalHtml = readRequiredOutputFile(job.outputDir, 'final.html', '最终预览文件')
+  const sourceFileName = getSourceFileName(job.targetFramework)
+  const sourceFile = sourceFileName
+    ? readOptionalOutputFile(job.outputDir, sourceFileName)
+    : null
+
+  return {
+    jobId: job.id,
+    htmlPath: finalHtml.path,
+    html: finalHtml.content,
+    sourcePath: sourceFile?.path ?? null,
+    source: sourceFile?.content ?? null
+  }
+}
+
+function getSourceFileName(targetFramework: JobRecord['targetFramework']): string | null {
+  if (targetFramework === 'vue2' || targetFramework === 'vue3') {
+    return 'ScreenCoderPage.vue'
+  }
+
+  if (targetFramework === 'react') {
+    return 'ScreenCoderPage.tsx'
+  }
+
+  return null
+}
+
+function readRequiredOutputFile(
+  outputDir: string,
+  fileName: string,
+  label: string
+): { path: string; content: string } {
+  if (!existsSync(outputDir)) {
+    throw new Error('任务输出目录不存在')
+  }
+
+  const outputRoot = realpathSync(outputDir)
+  const targetPath = join(outputRoot, fileName)
+
+  if (!existsSync(targetPath)) {
+    throw new Error(`${label}不存在`)
+  }
+
+  return readSafeOutputFile(outputRoot, targetPath, label)
+}
+
+function readOptionalOutputFile(
+  outputDir: string,
+  fileName: string
+): { path: string; content: string } | null {
+  if (!existsSync(outputDir)) {
+    return null
+  }
+
+  const outputRoot = realpathSync(outputDir)
+  const targetPath = join(outputRoot, fileName)
+
+  if (!existsSync(targetPath)) {
+    return null
+  }
+
+  return readSafeOutputFile(outputRoot, targetPath, '源码文件')
+}
+
+function readSafeOutputFile(
+  outputRoot: string,
+  targetPath: string,
+  label: string
+): { path: string; content: string } {
+  const realTargetPath = realpathSync(targetPath)
+
+  if (!isPathInsideDirectory(realTargetPath, outputRoot)) {
+    throw new Error(`${label}不在任务输出目录内`)
+  }
+
+  if (!statSync(realTargetPath).isFile()) {
+    throw new Error(`${label}必须是文件`)
+  }
+
+  return {
+    path: realTargetPath,
+    content: readFileSync(realTargetPath, 'utf8')
+  }
+}
+
+function isPathInsideDirectory(targetPath: string, directoryPath: string): boolean {
+  const relativePath = relative(directoryPath, targetPath)
+  return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))
 }
 
 function resolvePythonExecutable(): string {

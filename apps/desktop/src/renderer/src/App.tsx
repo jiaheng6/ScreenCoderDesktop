@@ -7,6 +7,7 @@ import { PreviewPanel } from './components/PreviewPanel'
 import { RunPanel } from './components/RunPanel'
 import { UploadPanel } from './components/UploadPanel'
 import './styles.css'
+import type { PreviewContent } from './components/PreviewPanel'
 import type {
   ScreencoderJobEventPayload,
   ScreencoderJobRecord,
@@ -33,6 +34,7 @@ function App(): JSX.Element {
   const [modelProfile, setModelProfile] = useState<ScreencoderModelProfileInput>(defaultProfile)
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [logs, setLogs] = useState<string[]>([])
+  const [previewContent, setPreviewContent] = useState<PreviewContent>({ type: 'empty' })
 
   const appendLog = useCallback((message: string): void => {
     setLogs((currentLogs) => [...currentLogs, message].slice(-200))
@@ -63,18 +65,57 @@ function App(): JSX.Element {
     })
   }, [appendLog])
 
+  const handleSelectPath = useCallback((path: string): void => {
+    setSelectedPath(path)
+    setPreviewContent({ type: 'image', path })
+  }, [])
+
+  const openJobPreview = useCallback(
+    async (job: ScreencoderJobRecord): Promise<void> => {
+      setActiveJobId(job.id)
+
+      if (job.status !== 'succeeded') {
+        setPreviewContent({ type: 'image', path: job.inputPath })
+        appendLog(`任务尚未成功，显示输入截图：${job.id}`)
+        return
+      }
+
+      try {
+        const preview = await window.screencoder.readJobPreview(job.id)
+        setPreviewContent({
+          type: 'html',
+          jobId: preview.jobId,
+          htmlPath: preview.htmlPath,
+          html: preview.html,
+          sourcePath: preview.sourcePath,
+          source: preview.source
+        })
+        appendLog(`已加载最终预览：${preview.htmlPath}`)
+      } catch (error) {
+        setPreviewContent({ type: 'image', path: job.inputPath })
+        appendLog(`最终预览加载失败，显示输入截图：${getErrorMessage(error)}`)
+      }
+    },
+    [appendLog]
+  )
+
   const handleJobUpdated = useCallback(
     async (job: ScreencoderJobRecord): Promise<void> => {
       setActiveJobId(job.id)
       setJobs((currentJobs) => [job, ...currentJobs.filter((currentJob) => currentJob.id !== job.id)])
       await loadJobs()
+
+      if (job.status === 'succeeded') {
+        await openJobPreview(job)
+      }
     },
-    [loadJobs]
+    [loadJobs, openJobPreview]
   )
 
   const handleRunStarted = useCallback((job: ScreencoderJobRecord): void => {
     setActiveJobId(job.id)
     setLogs([])
+    setPreviewContent({ type: 'image', path: job.inputPath })
     setJobs((currentJobs) => [
       { ...job, status: 'running' },
       ...currentJobs.filter((currentJob) => currentJob.id !== job.id)
@@ -88,10 +129,11 @@ function App(): JSX.Element {
         isLoading={isHistoryLoading}
         errorMessage={historyError}
         onRefresh={loadJobs}
+        onOpenJob={(job) => void openJobPreview(job)}
       />
 
       <section className="control-column" aria-label="任务控制">
-        <UploadPanel selectedPath={selectedPath} onSelectPath={setSelectedPath} />
+        <UploadPanel selectedPath={selectedPath} onSelectPath={handleSelectPath} />
         <ModelSettings profile={modelProfile} onProfileChange={setModelProfile} />
         <RunPanel
           selectedPath={selectedPath}
@@ -107,7 +149,7 @@ function App(): JSX.Element {
         <LogPanel activeJobId={activeJobId} logs={logs} />
       </section>
 
-      <PreviewPanel selectedPath={selectedPath} />
+      <PreviewPanel preview={previewContent} />
     </main>
   )
 }
