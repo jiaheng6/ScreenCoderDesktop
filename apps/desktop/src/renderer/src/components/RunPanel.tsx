@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import type {
   ScreencoderJobRecord,
-  ScreencoderModelProfileInput,
+  ScreencoderModelConfigRecord,
   ScreencoderPageKind,
   ScreencoderTargetFramework
 } from '../global'
 
 interface RunPanelProps {
   selectedPath: string | null
-  modelProfile: ScreencoderModelProfileInput
+  selectedModel: ScreencoderModelConfigRecord | null
   targetFramework: ScreencoderTargetFramework
   pageKind: ScreencoderPageKind
   onTargetFrameworkChange: (targetFramework: ScreencoderTargetFramework) => void
@@ -33,7 +33,7 @@ const pageKindOptions: Array<{ value: ScreencoderPageKind; label: string }> = [
 
 export function RunPanel({
   selectedPath,
-  modelProfile,
+  selectedModel,
   targetFramework,
   pageKind,
   onTargetFrameworkChange,
@@ -51,14 +51,18 @@ export function RunPanel({
       return
     }
 
+    if (!selectedModel) {
+      setMessage('请先在模型页保存并选择模型。')
+      return
+    }
+
     setIsRunning(true)
     setMessage(null)
 
     try {
       const job = await window.screencoder.createJobFromFile({
         inputPath: selectedPath,
-        provider: modelProfile.provider,
-        model: modelProfile.model,
+        modelConfigId: selectedModel.id,
         targetFramework,
         pageKind
       })
@@ -90,7 +94,7 @@ export function RunPanel({
       <div className="panel-header">
         <div>
           <h2 id="run-panel-title">运行流水线</h2>
-          <p>设置目标输出并启动 Python Worker</p>
+          <p>{selectedModel ? `当前模型：${selectedModel.name}` : '请选择已保存模型'}</p>
         </div>
       </div>
 
@@ -130,7 +134,7 @@ export function RunPanel({
         className="create-job-button"
         type="button"
         onClick={handleRunPipeline}
-        disabled={isRunning || !selectedPath}
+        disabled={isRunning || !selectedPath || !selectedModel}
       >
         {isRunning ? '运行中' : '运行流水线'}
       </button>

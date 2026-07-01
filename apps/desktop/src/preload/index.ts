@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 contextBridge.exposeInMainWorld('screencoder', {
   appVersion: '0.1.0',
   selectImage: () => ipcRenderer.invoke('dialog:select-image'),
+  readImagePreview: (inputPath: string) => ipcRenderer.invoke('images:read-preview', inputPath),
   listJobs: () => ipcRenderer.invoke('jobs:list'),
   createJobFromFile: (input: Record<string, unknown>) => ipcRenderer.invoke('jobs:create-from-file', input),
   runJob: (jobId: string) => ipcRenderer.invoke('jobs:run', jobId),
@@ -18,6 +19,9 @@ contextBridge.exposeInMainWorld('screencoder', {
       ipcRenderer.removeListener('jobs:event', listener)
     }
   },
-  listProfiles: () => ipcRenderer.invoke('profiles:list'),
-  saveProfile: (input: Record<string, unknown>) => ipcRenderer.invoke('profiles:save', input)
+  listProviders: () => ipcRenderer.invoke('providers:list'),
+  saveProvider: (input: Record<string, unknown>) => ipcRenderer.invoke('providers:save', input),
+  listModels: () => ipcRenderer.invoke('models:list'),
+  saveModel: (input: Record<string, unknown>) => ipcRenderer.invoke('models:save', input),
+  testModelConnection: (modelId: string) => ipcRenderer.invoke('models:test-connection', modelId)
 })

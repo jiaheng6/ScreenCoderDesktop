@@ -5,12 +5,10 @@ https://github.com/leigest519/ScreenCoder
 
 ScreenCoder is licensed under the Apache License, Version 2.0.
 
-At this initial planning stage, this repository does not copy upstream ScreenCoder source files.
-If upstream source files are copied or modified in later development, copyright notices, license
-headers, NOTICE content when present, and modification notices must be preserved according to
-the Apache License, Version 2.0.
+This repository includes a minimal runtime copy of ScreenCoder source files under
+screencoder-core/ so the desktop application can run the real ScreenCoder pipeline.
+The copied files retain the upstream Apache License, Version 2.0. Runtime patches are applied
+to per-job working copies at execution time to inject model configuration and task-local paths.
 
 ScreenCoderDesktop source code in this repository is authored for this project unless a file
 header states otherwise.
-
-Future copied or modified ScreenCoder files must retain their original Apache License 2.0 notices.

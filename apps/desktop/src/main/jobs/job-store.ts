@@ -10,6 +10,7 @@ export type TargetFramework = 'html' | 'vue2' | 'vue3' | 'react'
 export interface CreateJobInput {
   inputPath: string
   outputDir: string
+  modelConfigId: string
   provider: string
   model: string
   targetFramework: TargetFramework
@@ -27,6 +28,7 @@ interface JobRow {
   id: string
   input_path: string
   output_dir: string
+  model_config_id: string
   provider: string
   model: string
   target_framework: TargetFramework
@@ -47,6 +49,7 @@ export class JobStore {
         id TEXT PRIMARY KEY,
         input_path TEXT NOT NULL,
         output_dir TEXT NOT NULL,
+        model_config_id TEXT NOT NULL DEFAULT '',
         provider TEXT NOT NULL,
         model TEXT NOT NULL,
         target_framework TEXT NOT NULL CHECK (target_framework IN ('html', 'vue2', 'vue3', 'react')),
@@ -56,6 +59,7 @@ export class JobStore {
         updated_at TEXT NOT NULL
       )
     `)
+    this.ensureJobsColumn('model_config_id', "TEXT NOT NULL DEFAULT ''")
   }
 
   createJob(input: CreateJobInput): JobRecord {
@@ -75,6 +79,7 @@ export class JobStore {
             id,
             input_path,
             output_dir,
+            model_config_id,
             provider,
             model,
             target_framework,
@@ -83,13 +88,14 @@ export class JobStore {
             created_at,
             updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       )
       .run(
         record.id,
         record.inputPath,
         record.outputDir,
+        record.modelConfigId,
         record.provider,
         record.model,
         record.targetFramework,
@@ -131,6 +137,16 @@ export class JobStore {
   close(): void {
     this.database.close()
   }
+
+  private ensureJobsColumn(columnName: string, definition: string): void {
+    const rows = this.database.prepare('PRAGMA table_info(jobs)').all() as unknown as Array<{
+      name: string
+    }>
+
+    if (!rows.some((row) => row.name === columnName)) {
+      this.database.exec(`ALTER TABLE jobs ADD COLUMN ${columnName} ${definition}`)
+    }
+  }
 }
 
 function mapJobRow(row: JobRow): JobRecord {
@@ -138,6 +154,7 @@ function mapJobRow(row: JobRow): JobRecord {
     id: row.id,
     inputPath: row.input_path,
     outputDir: row.output_dir,
+    modelConfigId: row.model_config_id,
     provider: row.provider,
     model: row.model,
     targetFramework: row.target_framework,

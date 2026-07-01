@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, safeStorage } from 'electron'
 import { join } from 'node:path'
 import { registerIpcHandlers } from './ipc'
 import { JobStore } from './jobs/job-store'
@@ -60,7 +60,10 @@ function registerDesktopServices(): void {
 
   const databasePath = getDatabasePath()
   jobStore = new JobStore(databasePath)
-  modelProfileStore = new ModelProfileStore(databasePath)
+  modelProfileStore = new ModelProfileStore(databasePath, {
+    encrypt: (value) => safeStorage.encryptString(value).toString('base64'),
+    decrypt: (value) => safeStorage.decryptString(Buffer.from(value, 'base64'))
+  })
 
   registerIpcHandlers({
     ipcMain,

@@ -4,20 +4,31 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSy
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { runWorker as defaultRunWorker, type RunWorkerInput, type WorkerEvent } from './jobs/job-runner'
 import type { CreateJobInput, JobRecord, JobStatus, JobStore } from './jobs/job-store'
+import {
+  defaultModelConnectionTester,
+  type ModelConnectionTester,
+  type ModelConnectionTestResult
+} from './models/model-connection'
 import type {
-  ModelProfileInput,
-  ModelProfileRecord,
+  ModelConfigInput,
+  ModelConfigRecord,
+  ModelProviderInput,
+  ModelProviderRecord,
   ModelProfileStore
 } from './models/model-profile-store'
 
 export const IPC_CHANNELS = {
   selectImage: 'dialog:select-image',
+  readImagePreview: 'images:read-preview',
   listJobs: 'jobs:list',
   createJobFromFile: 'jobs:create-from-file',
   runJob: 'jobs:run',
   readJobPreview: 'jobs:read-preview',
-  listProfiles: 'profiles:list',
-  saveProfile: 'profiles:save'
+  listProviders: 'providers:list',
+  saveProvider: 'providers:save',
+  listModels: 'models:list',
+  saveModel: 'models:save',
+  testModelConnection: 'models:test-connection'
 } as const
 
 export const JOB_EVENT_CHANNEL = 'jobs:event'
@@ -55,13 +66,22 @@ export interface JobPreview {
   source: string | null
 }
 
+export interface ImagePreview {
+  path: string
+  dataUrl: string
+}
+
 interface CreateIpcHandlersInput {
   jobStore: Pick<JobStore, 'createJob' | 'listJobs' | 'getJob' | 'updateStatus'>
-  modelProfileStore: Pick<ModelProfileStore, 'listProfiles' | 'saveProfile'>
+  modelProfileStore: Pick<
+    ModelProfileStore,
+    'listProviders' | 'saveProvider' | 'listModels' | 'saveModel' | 'getRunnableModel'
+  >
   workspaceDir: string
   showOpenDialog: ShowOpenDialog
   createJobDirectoryId?: () => string
   runWorker?: (input: RunWorkerInput) => Promise<number>
+  modelConnectionTester?: ModelConnectionTester
   pythonExecutable?: string
   workerCwd?: string
   appPath?: string
@@ -69,12 +89,16 @@ interface CreateIpcHandlersInput {
 
 type IpcHandlers = {
   [IPC_CHANNELS.selectImage]: () => Promise<string | null>
+  [IPC_CHANNELS.readImagePreview]: (inputPath: string) => ImagePreview
   [IPC_CHANNELS.listJobs]: () => JobRecord[]
   [IPC_CHANNELS.createJobFromFile]: (input: CreateJobRequest) => JobRecord
   [IPC_CHANNELS.runJob]: (event: IpcInvokeEventLike, jobId: string) => Promise<JobRecord>
   [IPC_CHANNELS.readJobPreview]: (jobId: string) => JobPreview
-  [IPC_CHANNELS.listProfiles]: () => ModelProfileRecord[]
-  [IPC_CHANNELS.saveProfile]: (input: ModelProfileInput) => ModelProfileRecord
+  [IPC_CHANNELS.listProviders]: () => ModelProviderRecord[]
+  [IPC_CHANNELS.saveProvider]: (input: ModelProviderInput) => ModelProviderRecord
+  [IPC_CHANNELS.listModels]: () => ModelConfigRecord[]
+  [IPC_CHANNELS.saveModel]: (input: ModelConfigInput) => ModelConfigRecord
+  [IPC_CHANNELS.testModelConnection]: (modelId: string) => Promise<ModelConnectionTestResult>
 }
 
 const allowedImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp'])
@@ -84,8 +108,7 @@ const maxInputFileBytes = 20 * 1024 * 1024
 
 export interface CreateJobRequest {
   inputPath: string
-  provider: string
-  model: string
+  modelConfigId: string
   targetFramework: CreateJobInput['targetFramework']
   pageKind: CreateJobInput['pageKind']
 }
@@ -93,6 +116,7 @@ export interface CreateJobRequest {
 export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
   const createJobDirectoryId = input.createJobDirectoryId ?? randomUUID
   const runWorker = input.runWorker ?? defaultRunWorker
+  const modelConnectionTester = input.modelConnectionTester ?? defaultModelConnectionTester
   const pythonExecutable = input.pythonExecutable ?? resolvePythonExecutable()
   const workerCwd = input.workerCwd ?? resolveWorkerCwd(input.appPath)
 
@@ -108,9 +132,13 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
     [IPC_CHANNELS.listJobs]() {
       return input.jobStore.listJobs()
     },
+    [IPC_CHANNELS.readImagePreview](inputPath: string) {
+      return readImagePreview(inputPath)
+    },
     [IPC_CHANNELS.createJobFromFile](jobInput: CreateJobRequest) {
       const request = validateCreateJobRequest(jobInput)
       const safeInputPath = validateInputImagePath(request.inputPath)
+      const runnableModel = input.modelProfileStore.getRunnableModel(request.modelConfigId)
       const outputDir = join(input.workspaceDir, 'jobs', createJobDirectoryId())
       mkdirSync(outputDir, { recursive: true })
       const copiedInputPath = join(outputDir, basename(safeInputPath))
@@ -119,8 +147,9 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
       const createInput: CreateJobInput = {
         inputPath: copiedInputPath,
         outputDir,
-        provider: request.provider,
-        model: request.model,
+        modelConfigId: runnableModel.model.id,
+        provider: runnableModel.provider.provider,
+        model: runnableModel.model.model,
         targetFramework: request.targetFramework,
         pageKind: request.pageKind
       }
@@ -138,13 +167,16 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
       input.jobStore.updateStatus(job.id, 'running')
 
       try {
+        const runnableModel = input.modelProfileStore.getRunnableModel(job.modelConfigId)
         const exitCode = await runWorker({
           pythonExecutable,
           workerCwd,
           inputPath: job.inputPath,
           outputDir: job.outputDir,
-          provider: job.provider,
-          model: job.model,
+          provider: runnableModel.provider.provider,
+          model: runnableModel.model.model,
+          baseUrl: runnableModel.provider.baseUrl,
+          apiKey: runnableModel.provider.apiKey,
           target: job.targetFramework,
           pageKind: job.pageKind,
           onEvent: (workerEvent) => sendJobEvent(event, job.id, workerEvent)
@@ -170,11 +202,22 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
 
       return readJobPreview(job)
     },
-    [IPC_CHANNELS.listProfiles]() {
-      return input.modelProfileStore.listProfiles()
+    [IPC_CHANNELS.listProviders]() {
+      return input.modelProfileStore.listProviders()
     },
-    [IPC_CHANNELS.saveProfile](profileInput: ModelProfileInput) {
-      return input.modelProfileStore.saveProfile(validateModelProfileInput(profileInput))
+    [IPC_CHANNELS.saveProvider](providerInput: ModelProviderInput) {
+      return input.modelProfileStore.saveProvider(validateModelProviderInput(providerInput))
+    },
+    [IPC_CHANNELS.listModels]() {
+      return input.modelProfileStore.listModels()
+    },
+    [IPC_CHANNELS.saveModel](modelInput: ModelConfigInput) {
+      return input.modelProfileStore.saveModel(validateModelConfigInput(modelInput))
+    },
+    [IPC_CHANNELS.testModelConnection](modelId: string) {
+      const runnableModel = input.modelProfileStore.getRunnableModel(validateModelConfigId(modelId))
+
+      return modelConnectionTester(runnableModel)
     }
   }
 }
@@ -183,6 +226,9 @@ export function registerIpcHandlers(input: CreateIpcHandlersInput & { ipcMain: I
   const handlers = createIpcHandlers(input)
 
   input.ipcMain.handle(IPC_CHANNELS.selectImage, () => handlers[IPC_CHANNELS.selectImage]())
+  input.ipcMain.handle(IPC_CHANNELS.readImagePreview, (_event, inputPath) =>
+    handlers[IPC_CHANNELS.readImagePreview](assertString(inputPath, 'inputPath'))
+  )
   input.ipcMain.handle(IPC_CHANNELS.listJobs, () => handlers[IPC_CHANNELS.listJobs]())
   input.ipcMain.handle(IPC_CHANNELS.createJobFromFile, (_event, createJobInput) =>
     handlers[IPC_CHANNELS.createJobFromFile](validateCreateJobRequest(createJobInput))
@@ -193,28 +239,46 @@ export function registerIpcHandlers(input: CreateIpcHandlersInput & { ipcMain: I
   input.ipcMain.handle(IPC_CHANNELS.readJobPreview, (_event, jobId) =>
     handlers[IPC_CHANNELS.readJobPreview](validateJobId(jobId))
   )
-  input.ipcMain.handle(IPC_CHANNELS.listProfiles, () => handlers[IPC_CHANNELS.listProfiles]())
-  input.ipcMain.handle(IPC_CHANNELS.saveProfile, (_event, profileInput) =>
-    handlers[IPC_CHANNELS.saveProfile](validateModelProfileInput(profileInput))
+  input.ipcMain.handle(IPC_CHANNELS.listProviders, () => handlers[IPC_CHANNELS.listProviders]())
+  input.ipcMain.handle(IPC_CHANNELS.saveProvider, (_event, providerInput) =>
+    handlers[IPC_CHANNELS.saveProvider](validateModelProviderInput(providerInput))
+  )
+  input.ipcMain.handle(IPC_CHANNELS.listModels, () => handlers[IPC_CHANNELS.listModels]())
+  input.ipcMain.handle(IPC_CHANNELS.saveModel, (_event, modelInput) =>
+    handlers[IPC_CHANNELS.saveModel](validateModelConfigInput(modelInput))
+  )
+  input.ipcMain.handle(IPC_CHANNELS.testModelConnection, (_event, modelId) =>
+    handlers[IPC_CHANNELS.testModelConnection](validateModelConfigId(modelId))
   )
 }
 
 export function resolveWorkerCwd(appPath = process.cwd()): string {
+  const packagedResourcesPath = getPackagedResourcesPath()
   const candidateRoots = [
+    process.env.SCREENCODER_RUNTIME_DIR,
+    packagedResourcesPath,
     appPath,
     join(appPath, '..', '..'),
     process.cwd(),
     join(process.cwd(), '..', '..')
-  ]
+  ].filter((candidate): candidate is string => Boolean(candidate))
 
   for (const root of Array.from(new Set(candidateRoots.map((candidate) => resolve(candidate))))) {
-    const pythonDirectory = join(root, 'python')
-    if (existsSync(pythonDirectory)) {
-      return pythonDirectory
+    const pythonDirectories = [join(root, 'python'), join(root, 'runtime', 'python')]
+    for (const pythonDirectory of pythonDirectories) {
+      if (existsSync(pythonDirectory)) {
+        return pythonDirectory
+      }
     }
   }
 
   return join(resolve(appPath), 'python')
+}
+
+function getPackagedResourcesPath(): string | undefined {
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
+
+  return resourcesPath && resourcesPath.trim() ? resourcesPath : undefined
 }
 
 function validateCreateJobRequest(input: unknown): CreateJobRequest {
@@ -231,8 +295,7 @@ function validateCreateJobRequest(input: unknown): CreateJobRequest {
 
   return {
     inputPath: assertString(input.inputPath, 'inputPath'),
-    provider: validateNonEmptyString(input.provider, '服务提供商'),
-    model: validateNonEmptyString(input.model, '模型'),
+    modelConfigId: validateModelConfigId(input.modelConfigId),
     targetFramework,
     pageKind
   }
@@ -263,22 +326,59 @@ function validateInputImagePath(inputPath: string): string {
   return realInputPath
 }
 
-function validateModelProfileInput(input: unknown): ModelProfileInput {
+function readImagePreview(inputPath: string): ImagePreview {
+  const safeInputPath = validateInputImagePath(inputPath)
+  const extension = extname(safeInputPath).toLowerCase()
+  const mediaType =
+    extension === '.jpg' || extension === '.jpeg'
+      ? 'image/jpeg'
+      : extension === '.webp'
+        ? 'image/webp'
+        : 'image/png'
+
+  return {
+    path: safeInputPath,
+    dataUrl: `data:${mediaType};base64,${readFileSync(safeInputPath).toString('base64')}`
+  }
+}
+
+function validateModelProviderInput(input: unknown): ModelProviderInput {
+  if (!isPlainObject(input)) {
+    throw new Error('提供商配置必须是对象')
+  }
+
+  return {
+    id: validateOptionalId(input.id, '提供商 ID'),
+    name: validateNonEmptyString(input.name, '名称'),
+    provider: validateNonEmptyString(input.provider, '服务提供商'),
+    baseUrl: validateHttpUrl(input.baseUrl),
+    apiKey: validateOptionalSecret(input.apiKey, 'API Key')
+  }
+}
+
+function validateModelConfigInput(input: unknown): ModelConfigInput {
   if (!isPlainObject(input)) {
     throw new Error('模型配置必须是对象')
   }
 
   return {
+    id: validateOptionalId(input.id, '模型 ID'),
     name: validateNonEmptyString(input.name, '名称'),
-    provider: validateNonEmptyString(input.provider, '服务提供商'),
-    baseUrl: validateHttpUrl(input.baseUrl),
-    model: validateNonEmptyString(input.model, '模型'),
-    apiKeyRef: validateApiKeyRef(input.apiKeyRef)
+    providerId: validateModelProviderId(input.providerId),
+    model: validateNonEmptyString(input.model, '模型')
   }
 }
 
 function validateJobId(value: unknown): string {
   return validateNonEmptyString(value, '任务 ID')
+}
+
+function validateModelProviderId(value: unknown): string {
+  return validateNonEmptyString(value, '提供商 ID')
+}
+
+function validateModelConfigId(value: unknown): string {
+  return validateNonEmptyString(value, '模型 ID')
 }
 
 function updateJobStatus(
@@ -429,15 +529,6 @@ function resolvePythonExecutable(): string {
   return process.platform === 'win32' ? 'python' : 'python3'
 }
 
-function validateApiKeyRef(value: unknown): string {
-  const apiKeyRef = validateNonEmptyString(value, '密钥引用')
-  if (!/^secure-store:[a-zA-Z0-9._:-]+$/.test(apiKeyRef)) {
-    throw new Error('密钥引用必须使用 secure-store:<id> 格式')
-  }
-
-  return apiKeyRef
-}
-
 function validateEnumValue(value: unknown, allowedValues: Set<string>, label: string): string {
   const text = assertString(value, label)
   if (!allowedValues.has(text)) {
@@ -469,6 +560,27 @@ function validateHttpUrl(value: unknown): string {
   }
 
   return urlText
+}
+
+function validateOptionalId(value: unknown, label: string): string | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined
+  }
+
+  return validateNonEmptyString(value, label)
+}
+
+function validateOptionalSecret(value: unknown, label: string): string | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined
+  }
+
+  const secret = assertString(value, label)
+  if (secret.length > 10_000) {
+    throw new Error(`${label}过长`)
+  }
+
+  return secret
 }
 
 function assertString(value: unknown, label: string): string {

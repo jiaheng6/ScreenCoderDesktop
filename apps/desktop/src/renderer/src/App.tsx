@@ -11,7 +11,7 @@ import type { PreviewContent } from './components/PreviewPanel'
 import type {
   ScreencoderJobEventPayload,
   ScreencoderJobRecord,
-  ScreencoderModelProfileInput,
+  ScreencoderModelConfigRecord,
   ScreencoderPageKind,
   ScreencoderTargetFramework
 } from './global'
@@ -25,14 +25,6 @@ const workflowTabs: Array<{ id: WorkflowTab; label: string }> = [
   { id: 'log', label: '日志' }
 ]
 
-const defaultProfile: ScreencoderModelProfileInput = {
-  name: 'OpenCode Go',
-  provider: 'opencode-go',
-  baseUrl: 'https://opencode.ai/zen/go/v1',
-  model: 'minimax-m3',
-  apiKeyRef: 'secure-store:default'
-}
-
 function App(): JSX.Element {
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [jobs, setJobs] = useState<ScreencoderJobRecord[]>([])
@@ -40,7 +32,7 @@ function App(): JSX.Element {
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [targetFramework, setTargetFramework] = useState<ScreencoderTargetFramework>('html')
   const [pageKind, setPageKind] = useState<ScreencoderPageKind>('web')
-  const [modelProfile, setModelProfile] = useState<ScreencoderModelProfileInput>(defaultProfile)
+  const [selectedModel, setSelectedModel] = useState<ScreencoderModelConfigRecord | null>(null)
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [logs, setLogs] = useState<string[]>([])
   const [previewContent, setPreviewContent] = useState<PreviewContent>({ type: 'empty' })
@@ -75,18 +67,35 @@ function App(): JSX.Element {
     })
   }, [appendLog])
 
+  const showImagePreview = useCallback(
+    async (path: string): Promise<void> => {
+      try {
+        const imagePreview = await window.screencoder.readImagePreview(path)
+        setPreviewContent({
+          type: 'image',
+          path: imagePreview.path,
+          dataUrl: imagePreview.dataUrl
+        })
+      } catch (error) {
+        setPreviewContent({ type: 'empty' })
+        appendLog(`截图预览加载失败：${getErrorMessage(error)}`)
+      }
+    },
+    [appendLog]
+  )
+
   const handleSelectPath = useCallback((path: string): void => {
     setSelectedPath(path)
-    setPreviewContent({ type: 'image', path })
+    void showImagePreview(path)
     setActiveWorkflowTab('run')
-  }, [])
+  }, [showImagePreview])
 
   const openJobPreview = useCallback(
     async (job: ScreencoderJobRecord): Promise<void> => {
       setActiveJobId(job.id)
 
       if (job.status !== 'succeeded') {
-        setPreviewContent({ type: 'image', path: job.inputPath })
+        await showImagePreview(job.inputPath)
         appendLog(`任务尚未成功，显示输入截图：${job.id}`)
         return
       }
@@ -103,11 +112,11 @@ function App(): JSX.Element {
         })
         appendLog(`已加载最终预览：${preview.htmlPath}`)
       } catch (error) {
-        setPreviewContent({ type: 'image', path: job.inputPath })
+        await showImagePreview(job.inputPath)
         appendLog(`最终预览加载失败，显示输入截图：${getErrorMessage(error)}`)
       }
     },
-    [appendLog]
+    [appendLog, showImagePreview]
   )
 
   const handleJobUpdated = useCallback(
@@ -126,13 +135,13 @@ function App(): JSX.Element {
   const handleRunStarted = useCallback((job: ScreencoderJobRecord): void => {
     setActiveJobId(job.id)
     setLogs([])
-    setPreviewContent({ type: 'image', path: job.inputPath })
+    void showImagePreview(job.inputPath)
     setActiveWorkflowTab('log')
     setJobs((currentJobs) => [
       { ...job, status: 'running' },
       ...currentJobs.filter((currentJob) => currentJob.id !== job.id)
     ])
-  }, [])
+  }, [showImagePreview])
 
   const selectedFileName = selectedPath ? selectedPath.split(/[\\/]/).pop() : null
 
@@ -171,6 +180,9 @@ function App(): JSX.Element {
               {targetFramework.toUpperCase()} /{' '}
               {pageKind === 'web' ? '网页' : pageKind === 'mobile' ? '移动端' : '自定义'}
             </span>
+            <span title={selectedModel?.model}>
+              {selectedModel ? `模型：${selectedModel.name}` : '未选择模型'}
+            </span>
           </div>
 
           <div className="workflow-tab-panel" role="tabpanel">
@@ -178,12 +190,12 @@ function App(): JSX.Element {
               <UploadPanel selectedPath={selectedPath} onSelectPath={handleSelectPath} />
             ) : null}
             {activeWorkflowTab === 'model' ? (
-              <ModelSettings profile={modelProfile} onProfileChange={setModelProfile} />
+              <ModelSettings selectedModel={selectedModel} onModelChange={setSelectedModel} />
             ) : null}
             {activeWorkflowTab === 'run' ? (
               <RunPanel
                 selectedPath={selectedPath}
-                modelProfile={modelProfile}
+                selectedModel={selectedModel}
                 targetFramework={targetFramework}
                 pageKind={pageKind}
                 onTargetFrameworkChange={setTargetFramework}

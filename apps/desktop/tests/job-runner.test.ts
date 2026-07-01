@@ -57,9 +57,12 @@ describe('runWorker', () => {
     const { directory, cleanup } = createTempWorkspace('screencoder-job-runner-')
     const inputPath = join(directory, 'input.png')
     const outputDir = join(directory, 'output')
+    const screenCoderCoreDir = createFakeScreenCoderCore(directory)
     const events: WorkerEvent[] = []
+    const previousCoreDir = process.env.SCREENCODER_CORE_DIR
 
     writeFileSync(inputPath, Buffer.from('mock image bytes'))
+    process.env.SCREENCODER_CORE_DIR = screenCoderCoreDir
 
     try {
       const code = await runWorker({
@@ -69,6 +72,8 @@ describe('runWorker', () => {
         outputDir,
         provider: 'mock',
         model: 'mock-model',
+        baseUrl: 'http://127.0.0.1:3000/v1',
+        apiKey: 'sk-test',
         target: 'html',
         pageKind: 'web',
         onEvent: (event) => events.push(event)
@@ -83,6 +88,7 @@ describe('runWorker', () => {
       })
       expect(existsSync(join(outputDir, 'final.html'))).toBe(true)
     } finally {
+      restoreEnvValue('SCREENCODER_CORE_DIR', previousCoreDir)
       cleanup()
     }
   })
@@ -100,6 +106,8 @@ describe('runWorker', () => {
         outputDir,
         provider: 'mock',
         model: 'mock-model',
+        baseUrl: 'http://127.0.0.1:3000/v1',
+        apiKey: 'sk-test',
         target: 'html',
         pageKind: 'web',
         onEvent: (event) => events.push(event)
@@ -133,6 +141,8 @@ describe('runWorker', () => {
         outputDir: 'output',
         provider: 'mock',
         model: 'mock-model',
+        baseUrl: 'http://127.0.0.1:3000/v1',
+        apiKey: 'sk-test',
         target: 'html',
         pageKind: 'web',
         onEvent: (event) => events.push(event)
@@ -163,6 +173,8 @@ describe('runWorker', () => {
           outputDir: 'output',
           provider: 'mock',
           model: 'mock-model',
+          baseUrl: 'http://127.0.0.1:3000/v1',
+          apiKey: 'sk-test',
           target: 'html',
           pageKind: 'web',
           onEvent: (event) => events.push(event)
@@ -192,6 +204,8 @@ describe('runWorker', () => {
           outputDir: 'output',
           provider: 'mock',
           model: 'mock-model',
+          baseUrl: 'http://127.0.0.1:3000/v1',
+          apiKey: 'sk-test',
           target: 'html',
           pageKind: 'web',
           onEvent: (event) => events.push(event)
@@ -211,4 +225,31 @@ function createFakeWorker(directory: string, bodyLines: string[]): string {
   writeFileSync(join(packageDir, '__init__.py'), '', 'utf8')
   writeFileSync(join(packageDir, 'cli.py'), `${bodyLines.join('\n')}\n`, 'utf8')
   return directory
+}
+
+function createFakeScreenCoderCore(directory: string): string {
+  const coreDir = join(directory, 'fake-screencoder-core')
+  mkdirSync(coreDir, { recursive: true })
+  writeFileSync(
+    join(coreDir, 'main.py'),
+    [
+      'import os',
+      'from pathlib import Path',
+      "assert os.environ['OPENCODE_API_KEY'] == 'sk-test'",
+      "assert Path('data/input/test1.png').exists()",
+      "Path('data/output').mkdir(parents=True, exist_ok=True)",
+      "Path('data/output/test1_layout_final.html').write_text('<main>真实 ScreenCoder 产物</main>', encoding='utf-8')"
+    ].join('\n'),
+    'utf8'
+  )
+  return coreDir
+}
+
+function restoreEnvValue(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name]
+    return
+  }
+
+  process.env[name] = value
 }

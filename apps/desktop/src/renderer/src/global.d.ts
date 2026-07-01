@@ -6,6 +6,7 @@ export interface ScreencoderJobRecord {
   id: string
   inputPath: string
   outputDir: string
+  modelConfigId: string
   provider: string
   model: string
   targetFramework: ScreencoderTargetFramework
@@ -15,24 +16,43 @@ export interface ScreencoderJobRecord {
   updatedAt: string
 }
 
-export interface ScreencoderModelProfileInput {
+export interface ScreencoderModelProviderInput {
+  id?: string
   name: string
   provider: string
   baseUrl: string
-  model: string
-  apiKeyRef: string
+  apiKey?: string
 }
 
-export interface ScreencoderModelProfileRecord extends ScreencoderModelProfileInput {
+export interface ScreencoderModelProviderRecord {
   id: string
+  name: string
+  provider: string
+  baseUrl: string
+  hasApiKey: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ScreencoderModelConfigInput {
+  id?: string
+  name: string
+  providerId: string
+  model: string
+}
+
+export interface ScreencoderModelConfigRecord {
+  id: string
+  name: string
+  providerId: string
+  model: string
   createdAt: string
   updatedAt: string
 }
 
 export interface ScreencoderCreateJobInput {
   inputPath: string
-  provider: string
-  model: string
+  modelConfigId: string
   targetFramework: ScreencoderTargetFramework
   pageKind: ScreencoderPageKind
 }
@@ -52,20 +72,36 @@ export interface ScreencoderJobPreview {
   source: string | null
 }
 
+export interface ScreencoderImagePreview {
+  path: string
+  dataUrl: string
+}
+
+export interface ScreencoderModelConnectionTestResult {
+  ok: boolean
+  status: number | null
+  message: string
+  latencyMs: number
+}
+
 declare global {
   interface Window {
     screencoder: {
       appVersion: string
       selectImage: () => Promise<string | null>
+      readImagePreview: (inputPath: string) => Promise<ScreencoderImagePreview>
       listJobs: () => Promise<ScreencoderJobRecord[]>
       createJobFromFile: (input: ScreencoderCreateJobInput) => Promise<ScreencoderJobRecord>
       runJob: (jobId: string) => Promise<ScreencoderJobRecord>
       readJobPreview: (jobId: string) => Promise<ScreencoderJobPreview>
       onJobEvent: (callback: (payload: ScreencoderJobEventPayload) => void) => () => void
-      listProfiles: () => Promise<ScreencoderModelProfileRecord[]>
-      saveProfile: (
-        input: ScreencoderModelProfileInput
-      ) => Promise<ScreencoderModelProfileRecord>
+      listProviders: () => Promise<ScreencoderModelProviderRecord[]>
+      saveProvider: (
+        input: ScreencoderModelProviderInput
+      ) => Promise<ScreencoderModelProviderRecord>
+      listModels: () => Promise<ScreencoderModelConfigRecord[]>
+      saveModel: (input: ScreencoderModelConfigInput) => Promise<ScreencoderModelConfigRecord>
+      testModelConnection: (modelId: string) => Promise<ScreencoderModelConnectionTestResult>
     }
   }
 }

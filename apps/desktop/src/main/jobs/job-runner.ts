@@ -11,6 +11,8 @@ export interface RunWorkerInput {
   outputDir: string
   provider: string
   model: string
+  baseUrl: string
+  apiKey: string
   target: TargetFramework
   pageKind: PageKind
   onEvent: (event: WorkerEvent) => void
@@ -32,6 +34,8 @@ export function runWorker(input: RunWorkerInput): Promise<number> {
       input.provider,
       '--model',
       input.model,
+      '--base-url',
+      input.baseUrl,
       '--target',
       input.target,
       '--page-kind',
@@ -42,6 +46,7 @@ export function runWorker(input: RunWorkerInput): Promise<number> {
       cwd: input.workerCwd,
       env: {
         ...process.env,
+        SCREENCODER_API_KEY: input.apiKey,
         PYTHONIOENCODING: 'utf-8'
       },
       stdio: ['ignore', 'pipe', 'pipe']

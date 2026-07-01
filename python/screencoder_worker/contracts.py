@@ -13,6 +13,8 @@ class RunConfig:
     output_dir: Path
     provider: str
     model: str
+    base_url: str
+    api_key: str
     target: TargetFramework
     page_kind: PageKind
 

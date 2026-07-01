@@ -1,7 +1,11 @@
 from collections.abc import Iterator
-from html import escape
 from pathlib import Path
-from shutil import copyfile
+from queue import Empty, Queue
+from shutil import copy2, copyfile, copytree, rmtree
+import os
+import subprocess
+import sys
+import threading
 
 from .contracts import RunConfig, artifact_event, stage_event
 
@@ -10,10 +14,34 @@ class WorkerError(RuntimeError):
     pass
 
 
+EXCLUDED_CORE_ENTRIES = {
+    ".git",
+    ".venv",
+    "__pycache__",
+    "apps",
+    "data",
+    "post-training",
+    "python",
+    "tmp",
+    "tmp.zip",
+}
+
+ROOT_FILES_TO_COPY = {
+    "LICENSE",
+    "README.md",
+    "requirements.txt",
+}
+
+ROOT_DIRS_TO_COPY = {
+    "UIED",
+}
+
+
 def run_pipeline(config: RunConfig) -> Iterator[dict[str, object]]:
     output_dir = Path(config.output_dir)
     input_path = Path(config.input_path)
     copied_input = output_dir / "input.png"
+    runtime_dir = output_dir / "screencoder-work"
     final_html = output_dir / "final.html"
 
     yield stage_event("prepare", "running")
@@ -27,16 +55,195 @@ def run_pipeline(config: RunConfig) -> Iterator[dict[str, object]]:
     output_dir.mkdir(parents=True, exist_ok=True)
     copyfile(input_path, copied_input)
     yield artifact_event("input", copied_input)
+
+    core_dir = resolve_screencoder_core_dir()
+    _prepare_runtime_core(core_dir, runtime_dir, config, input_path)
+    yield artifact_event("runtime", runtime_dir)
     yield stage_event("prepare", "done")
 
-    yield stage_event("html_generation", "running")
-    final_html.write_text(_render_mock_html(config), encoding="utf-8")
+    yield stage_event("screencoder", "running")
+    exit_code = yield from _run_core_process(runtime_dir, config)
+    if exit_code != 0:
+        raise WorkerError(f"ScreenCoder 退出码非零：{exit_code}")
+    yield stage_event("screencoder", "done")
+
+    source_html = _resolve_screencoder_output(runtime_dir)
+    copyfile(source_html, final_html)
     source_artifact = _write_source_artifact(config, final_html.read_text(encoding="utf-8"))
     yield artifact_event("final", final_html)
     if source_artifact is not None:
         yield artifact_event("source", source_artifact)
-    yield stage_event("html_generation", "done")
     yield stage_event("final", "done", output=str(final_html))
+
+
+def resolve_screencoder_core_dir() -> Path:
+    configured_dir = os.environ.get("SCREENCODER_CORE_DIR", "").strip()
+    if configured_dir:
+        return _validate_core_dir(Path(configured_dir))
+
+    current_file = Path(__file__).resolve()
+    candidates = [
+        current_file.parents[2] / "screencoder-core",
+        current_file.parents[3] / "ScreenCoder",
+    ]
+
+    for candidate in candidates:
+        if (candidate / "main.py").exists():
+            return candidate
+
+    raise WorkerError(
+        "未找到 ScreenCoder core。请设置 SCREENCODER_CORE_DIR 指向包含 main.py 的原项目目录。"
+    )
+
+
+def _validate_core_dir(core_dir: Path) -> Path:
+    resolved = core_dir.expanduser().resolve()
+    if not (resolved / "main.py").exists():
+        raise WorkerError(f"ScreenCoder core 目录缺少 main.py：{resolved}")
+    return resolved
+
+
+def _prepare_runtime_core(
+    core_dir: Path,
+    runtime_dir: Path,
+    config: RunConfig,
+    input_path: Path,
+) -> None:
+    if runtime_dir.exists():
+        rmtree(runtime_dir)
+
+    runtime_dir.mkdir(parents=True)
+    for item in core_dir.iterdir():
+        if item.name in EXCLUDED_CORE_ENTRIES:
+            continue
+
+        destination = runtime_dir / item.name
+        if item.is_dir():
+            if item.name in ROOT_DIRS_TO_COPY:
+                copytree(item, destination, ignore=_ignore_runtime_noise)
+            continue
+
+        if item.suffix == ".py" or item.name in ROOT_FILES_TO_COPY:
+            copy2(item, destination)
+
+    _patch_runtime_model_config(runtime_dir)
+    data_input_dir = runtime_dir / "data" / "input"
+    (runtime_dir / "data" / "tmp").mkdir(parents=True, exist_ok=True)
+    (runtime_dir / "data" / "output").mkdir(parents=True, exist_ok=True)
+    data_input_dir.mkdir(parents=True, exist_ok=True)
+    copyfile(input_path, data_input_dir / "test1.png")
+
+
+def _ignore_runtime_noise(_directory: str, names: list[str]) -> set[str]:
+    return {
+        name
+        for name in names
+        if name == "__pycache__" or name.endswith(".pyc") or name in {"logs", "data"}
+    }
+
+
+def _patch_runtime_model_config(runtime_dir: Path) -> None:
+    block_parser = runtime_dir / "block_parsor.py"
+    if block_parser.exists():
+        content = block_parser.read_text(encoding="utf-8")
+        content = content.replace(
+            'OpenCodeGo(model="minimax-m3")',
+            'OpenCodeGo(model=os.environ.get("SCREENCODER_MODEL", "minimax-m3"), '
+            'base_url=os.environ.get("SCREENCODER_BASE_URL", "https://opencode.ai/zen/go/v1"))',
+        )
+        block_parser.write_text(content, encoding="utf-8")
+
+    html_generator = runtime_dir / "html_generator.py"
+    if html_generator.exists():
+        content = html_generator.read_text(encoding="utf-8")
+        if "import os" not in content.splitlines()[:5]:
+            content = f"import os\n{content}"
+        content = content.replace(
+            'OpenCodeGo(model="minimax-m3")',
+            'OpenCodeGo(model=os.environ.get("SCREENCODER_MODEL", "minimax-m3"), '
+            'base_url=os.environ.get("SCREENCODER_BASE_URL", "https://opencode.ai/zen/go/v1"))',
+        )
+        html_generator.write_text(content, encoding="utf-8")
+
+
+def _run_core_process(runtime_dir: Path, config: RunConfig) -> Iterator[dict[str, object]]:
+    process = subprocess.Popen(
+        [sys.executable, "main.py"],
+        cwd=runtime_dir,
+        env={
+            **os.environ,
+            "OPENCODE_API_KEY": config.api_key,
+            "SCREENCODER_API_KEY": config.api_key,
+            "SCREENCODER_PROVIDER": config.provider,
+            "SCREENCODER_MODEL": config.model,
+            "SCREENCODER_BASE_URL": config.base_url,
+            "PYTHONIOENCODING": "utf-8",
+        },
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    lines: Queue[tuple[str, str | None]] = Queue()
+    threads = [
+        threading.Thread(target=_read_process_stream, args=("stdout", process.stdout, lines)),
+        threading.Thread(target=_read_process_stream, args=("stderr", process.stderr, lines)),
+    ]
+
+    for thread in threads:
+        thread.daemon = True
+        thread.start()
+
+    active_streams = len(threads)
+    while active_streams > 0:
+        try:
+            stream_name, line = lines.get(timeout=0.1)
+        except Empty:
+            continue
+
+        if line is None:
+            active_streams -= 1
+            continue
+
+        if line:
+            yield {
+                "type": "log",
+                "stream": stream_name,
+                "line": line,
+            }
+
+    for thread in threads:
+        thread.join(timeout=1)
+
+    return process.wait()
+
+
+def _read_process_stream(
+    stream_name: str,
+    stream,
+    lines: Queue[tuple[str, str | None]],
+) -> None:
+    try:
+        if stream is None:
+            return
+        for line in stream:
+            lines.put((stream_name, line.rstrip("\r\n")))
+    finally:
+        lines.put((stream_name, None))
+
+
+def _resolve_screencoder_output(runtime_dir: Path) -> Path:
+    candidates = [
+        runtime_dir / "data" / "output" / "test1_layout_final.html",
+        runtime_dir / "data" / "output" / "test1_layout.html",
+    ]
+
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+
+    raise WorkerError("ScreenCoder 未生成 HTML 产物")
 
 
 def _write_source_artifact(config: RunConfig, html: str) -> Path | None:
@@ -64,36 +271,3 @@ def _write_source_artifact(config: RunConfig, html: str) -> Path | None:
         return export_path
 
     return None
-
-
-def _render_mock_html(config: RunConfig) -> str:
-    provider = escape(config.provider)
-    model = escape(config.model)
-    target = escape(config.target)
-    page_kind = escape(config.page_kind)
-
-    return f"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ScreenCoderDesktop 模拟输出</title>
-</head>
-<body>
-  <main>
-    <h1>ScreenCoderDesktop 模拟输出</h1>
-    <p>这是 Python Worker 模拟流水线生成的 HTML 产物。</p>
-    <dl>
-      <dt>服务提供方</dt>
-      <dd>{provider}</dd>
-      <dt>模型</dt>
-      <dd>{model}</dd>
-      <dt>目标框架</dt>
-      <dd>{target}</dd>
-      <dt>页面类型</dt>
-      <dd>{page_kind}</dd>
-    </dl>
-  </main>
-</body>
-</html>
-"""

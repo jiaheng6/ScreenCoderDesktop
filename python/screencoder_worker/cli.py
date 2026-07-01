@@ -22,6 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--output", dest="output_dir", type=Path, required=True)
     run_parser.add_argument("--provider", required=True)
     run_parser.add_argument("--model", required=True)
+    run_parser.add_argument("--base-url", dest="base_url", required=True)
     run_parser.add_argument("--target", choices=TARGET_CHOICES, required=True)
     run_parser.add_argument("--page-kind", choices=PAGE_KIND_CHOICES, required=True)
 
@@ -39,6 +40,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_dir=args.output_dir,
             provider=args.provider,
             model=args.model,
+            base_url=args.base_url,
+            api_key=_read_api_key(),
             target=args.target,
             page_kind=args.page_kind,
         )
@@ -61,6 +64,12 @@ def _configure_stdout() -> None:
 
 def _print_event(event: dict[str, object]) -> None:
     print(json.dumps(event, ensure_ascii=False), flush=True)
+
+
+def _read_api_key() -> str:
+    import os
+
+    return os.environ.get("SCREENCODER_API_KEY", "")
 
 
 if __name__ == "__main__":

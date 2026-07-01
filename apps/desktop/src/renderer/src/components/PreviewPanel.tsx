@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 export type PreviewContent =
   | { type: 'empty' }
-  | { type: 'image'; path: string }
+  | { type: 'image'; path: string; dataUrl: string }
   | {
       type: 'html'
       jobId: string
@@ -85,7 +85,7 @@ export function PreviewPanel({ preview }: PreviewPanelProps): JSX.Element {
           <div className="empty-state">{imageError}</div>
         ) : (
           <img
-            src={toFileUrl(preview.path)}
+            src={preview.dataUrl}
             alt="当前截图预览"
             onError={() => setImageError('图片无法预览，请确认文件仍可访问。')}
           />
@@ -98,11 +98,4 @@ export function PreviewPanel({ preview }: PreviewPanelProps): JSX.Element {
       </div>
     </section>
   )
-}
-
-function toFileUrl(path: string): string {
-  const normalizedPath = path.replace(/\\/g, '/')
-  const prefixedPath = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`
-
-  return `file://${encodeURI(prefixedPath).replace(/#/g, '%23').replace(/\?/g, '%3F')}`
 }

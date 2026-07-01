@@ -17,6 +17,7 @@ function createJobInput(overrides: Partial<CreateJobInput> = {}): CreateJobInput
   return {
     inputPath: 'C:\\input\\screen.png',
     outputDir: 'C:\\output',
+    modelConfigId: 'model-1',
     provider: 'opencode-go',
     model: 'minimax-m3',
     targetFramework: 'react',
@@ -44,6 +45,7 @@ describe('JobStore', () => {
         id: created.id,
         inputPath: 'C:\\input\\screen.png',
         outputDir: 'C:\\output',
+        modelConfigId: 'model-1',
         provider: 'opencode-go',
         model: 'minimax-m3',
         targetFramework: 'react',

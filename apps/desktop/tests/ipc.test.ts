@@ -13,8 +13,11 @@ import {
 import type { CreateJobInput, JobRecord } from '../src/main/jobs/job-store'
 import type { RunWorkerInput } from '../src/main/jobs/job-runner'
 import type {
-  ModelProfileInput,
-  ModelProfileRecord
+  ModelConfigInput,
+  ModelConfigRecord,
+  ModelProviderInput,
+  ModelProviderRecord,
+  RunnableModel
 } from '../src/main/models/model-profile-store'
 
 function createTempWorkspace(prefix: string): { directory: string; cleanup: () => void } {
@@ -75,6 +78,13 @@ type FakeIpcEvent = {
 
 type RunJobHandler = (event: FakeIpcEvent, jobId: string) => Promise<JobRecord>
 type ReadJobPreviewHandler = (jobId: string) => JobPreview
+type ReadImagePreviewHandler = (inputPath: string) => { path: string; dataUrl: string }
+type TestModelConnectionHandler = (modelId: string) => Promise<{
+  ok: boolean
+  status: number | null
+  message: string
+  latencyMs: number
+}>
 
 function getRunJobHandler(handlers: ReturnType<typeof createIpcHandlers>): RunJobHandler {
   return handlers['jobs:run' as keyof typeof handlers] as unknown as RunJobHandler
@@ -84,6 +94,18 @@ function getReadJobPreviewHandler(
   handlers: ReturnType<typeof createIpcHandlers>
 ): ReadJobPreviewHandler {
   return handlers['jobs:read-preview' as keyof typeof handlers] as unknown as ReadJobPreviewHandler
+}
+
+function getReadImagePreviewHandler(
+  handlers: ReturnType<typeof createIpcHandlers>
+): ReadImagePreviewHandler {
+  return handlers['images:read-preview' as keyof typeof handlers] as unknown as ReadImagePreviewHandler
+}
+
+function getTestModelConnectionHandler(
+  handlers: ReturnType<typeof createIpcHandlers>
+): TestModelConnectionHandler {
+  return handlers['models:test-connection' as keyof typeof handlers] as unknown as TestModelConnectionHandler
 }
 
 function createFakeIpcEvent(sentMessages: Array<{ channel: string; payload: unknown }>): FakeIpcEvent {
@@ -100,6 +122,7 @@ function createQueuedJob(jobStore: ReturnType<typeof createFakeJobStore>): JobRe
   return jobStore.createJob({
     inputPath: 'C:\\workspace\\jobs\\job-1\\screen.png',
     outputDir: 'C:\\workspace\\jobs\\job-1',
+    modelConfigId: 'model-1',
     provider: 'mock-provider',
     model: 'mock-model',
     targetFramework: 'react',
@@ -108,23 +131,85 @@ function createQueuedJob(jobStore: ReturnType<typeof createFakeJobStore>): JobRe
 }
 
 function createFakeModelProfileStore(): {
-  listProfiles: () => ModelProfileRecord[]
-  saveProfile: (input: ModelProfileInput) => ModelProfileRecord
+  listProviders: () => ModelProviderRecord[]
+  saveProvider: (input: ModelProviderInput) => ModelProviderRecord
+  listModels: () => ModelConfigRecord[]
+  saveModel: (input: ModelConfigInput) => ModelConfigRecord
+  getRunnableModel: (modelId: string) => RunnableModel
 } {
-  const records: ModelProfileRecord[] = []
+  const providers: ModelProviderRecord[] = [
+    {
+      id: 'provider-1',
+      name: 'OpenCode Go',
+      provider: 'opencode-go',
+      baseUrl: 'https://opencode.ai/zen/go/v1',
+      hasApiKey: true,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    }
+  ]
+  const models: ModelConfigRecord[] = [
+    {
+      id: 'model-1',
+      name: 'Minimax M3',
+      providerId: 'provider-1',
+      model: 'minimax-m3',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    }
+  ]
 
   return {
-    listProfiles: () => records,
-    saveProfile: (input) => {
+    listProviders: () => providers,
+    saveProvider: (input) => {
       const now = '2026-07-01T00:00:00.000Z'
-      const record: ModelProfileRecord = {
-        ...input,
-        id: `profile-${records.length + 1}`,
+      const record: ModelProviderRecord = {
+        id: input.id ?? `provider-${providers.length + 1}`,
+        name: input.name,
+        provider: input.provider,
+        baseUrl: input.baseUrl,
+        hasApiKey: Boolean(input.apiKey),
         createdAt: now,
         updatedAt: now
       }
-      records.unshift(record)
+      providers.unshift(record)
       return record
+    },
+    listModels: () => models,
+    saveModel: (input) => {
+      const now = '2026-07-01T00:00:00.000Z'
+      const record: ModelConfigRecord = {
+        id: input.id ?? `model-${models.length + 1}`,
+        name: input.name,
+        providerId: input.providerId,
+        model: input.model,
+        createdAt: now,
+        updatedAt: now
+      }
+      models.unshift(record)
+      return record
+    },
+    getRunnableModel: (modelId) => {
+      const model = models.find((currentModel) => currentModel.id === modelId)
+      if (!model) {
+        throw new Error('模型配置不存在')
+      }
+
+      const provider = providers.find((currentProvider) => currentProvider.id === model.providerId)
+      if (!provider) {
+        throw new Error('模型绑定的提供商不存在')
+      }
+
+      return {
+        model,
+        provider: {
+          id: provider.id,
+          name: provider.name,
+          provider: provider.provider,
+          baseUrl: provider.baseUrl,
+          apiKey: 'sk-test'
+        }
+      }
     }
   }
 }
@@ -204,8 +289,7 @@ describe('desktop IPC 白名单 API', () => {
 
       const created = handlers[IPC_CHANNELS.createJobFromFile]({
         inputPath,
-        provider: 'opencode-go',
-        model: 'minimax-m3',
+        modelConfigId: 'model-1',
         targetFramework: 'react',
         pageKind: 'mobile'
       })
@@ -216,6 +300,7 @@ describe('desktop IPC 白名单 API', () => {
         {
           inputPath: copiedInputPath,
           outputDir,
+          modelConfigId: 'model-1',
           provider: 'opencode-go',
           model: 'minimax-m3',
           targetFramework: 'react',
@@ -225,6 +310,7 @@ describe('desktop IPC 白名单 API', () => {
       expect(created).toMatchObject({
         inputPath: copiedInputPath,
         outputDir,
+        modelConfigId: 'model-1',
         provider: 'opencode-go',
         model: 'minimax-m3',
         targetFramework: 'react',
@@ -256,16 +342,14 @@ describe('desktop IPC 白名单 API', () => {
       const createTextJob = (): JobRecord =>
         handlers[IPC_CHANNELS.createJobFromFile]({
           inputPath: textPath,
-          provider: 'mock',
-          model: 'mock-model',
+          modelConfigId: 'model-1',
           targetFramework: 'html',
           pageKind: 'web'
         })
       const createDirectoryJob = (): JobRecord =>
         handlers[IPC_CHANNELS.createJobFromFile]({
           inputPath: imageDirectory,
-          provider: 'mock',
-          model: 'mock-model',
+          modelConfigId: 'model-1',
           targetFramework: 'html',
           pageKind: 'web'
         })
@@ -281,7 +365,50 @@ describe('desktop IPC 白名单 API', () => {
     }
   })
 
-  it('可以保存模型配置并读取配置列表', () => {
+  it('读取图片预览时会返回 data URL，避免 renderer 直接访问本地文件', () => {
+    const { directory, cleanup } = createTempWorkspace('screencoder-image-preview-')
+    const inputPath = join(directory, 'screen.png')
+    writeFileSync(inputPath, Buffer.from('mock image bytes'))
+
+    try {
+      const handlers = createIpcHandlers({
+        jobStore: createFakeJobStore(),
+        modelProfileStore: createFakeModelProfileStore(),
+        workspaceDir: join(directory, 'workspace'),
+        showOpenDialog: async () => ({ canceled: true, filePaths: [] })
+      })
+
+      expect(getReadImagePreviewHandler(handlers)(inputPath)).toEqual({
+        path: inputPath,
+        dataUrl: `data:image/png;base64,${Buffer.from('mock image bytes').toString('base64')}`
+      })
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('读取图片预览时会拒绝非图片文件', () => {
+    const { directory, cleanup } = createTempWorkspace('screencoder-invalid-image-preview-')
+    const inputPath = join(directory, 'screen.txt')
+    writeFileSync(inputPath, 'not image', 'utf8')
+
+    try {
+      const handlers = createIpcHandlers({
+        jobStore: createFakeJobStore(),
+        modelProfileStore: createFakeModelProfileStore(),
+        workspaceDir: join(directory, 'workspace'),
+        showOpenDialog: async () => ({ canceled: true, filePaths: [] })
+      })
+
+      expect(() => getReadImagePreviewHandler(handlers)(inputPath)).toThrow(
+        '只支持 png、jpg、jpeg、webp 图片'
+      )
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('可以分别保存提供商和模型，并读取配置列表', () => {
     const profileStore = createFakeModelProfileStore()
     const handlers = createIpcHandlers({
       jobStore: createFakeJobStore(),
@@ -290,26 +417,36 @@ describe('desktop IPC 白名单 API', () => {
       showOpenDialog: async () => ({ canceled: true, filePaths: [] })
     })
 
-    const saved = handlers[IPC_CHANNELS.saveProfile]({
+    const savedProvider = handlers[IPC_CHANNELS.saveProvider]({
       name: '本地 Mock',
       provider: 'mock',
       baseUrl: 'http://127.0.0.1:3000/v1',
-      model: 'mock-model',
-      apiKeyRef: 'secure-store:mock'
+      apiKey: 'sk-test'
+    })
+    const savedModel = handlers[IPC_CHANNELS.saveModel]({
+      name: 'Mock 模型',
+      providerId: savedProvider.id,
+      model: 'mock-model'
     })
 
-    expect(saved).toMatchObject({
-      id: 'profile-1',
+    expect(savedProvider).toMatchObject({
+      id: 'provider-2',
       name: '本地 Mock',
       provider: 'mock',
       baseUrl: 'http://127.0.0.1:3000/v1',
-      model: 'mock-model',
-      apiKeyRef: 'secure-store:mock'
+      hasApiKey: true
     })
-    expect(handlers[IPC_CHANNELS.listProfiles]()).toEqual([saved])
+    expect(savedModel).toMatchObject({
+      id: 'model-2',
+      name: 'Mock 模型',
+      providerId: savedProvider.id,
+      model: 'mock-model'
+    })
+    expect(handlers[IPC_CHANNELS.listProviders]()[0]).toEqual(savedProvider)
+    expect(handlers[IPC_CHANNELS.listModels]()[0]).toEqual(savedModel)
   })
 
-  it('保存模型配置时会拒绝无效 payload', () => {
+  it('保存提供商和模型时会拒绝无效 payload', () => {
     const handlers = createIpcHandlers({
       jobStore: createFakeJobStore(),
       modelProfileStore: createFakeModelProfileStore(),
@@ -317,36 +454,73 @@ describe('desktop IPC 白名单 API', () => {
       showOpenDialog: async () => ({ canceled: true, filePaths: [] })
     })
 
-    expect(() => handlers[IPC_CHANNELS.saveProfile](null as unknown as ModelProfileInput)).toThrow(
-      '模型配置必须是对象'
+    expect(() => handlers[IPC_CHANNELS.saveProvider](null as unknown as ModelProviderInput)).toThrow(
+      '提供商配置必须是对象'
     )
     expect(() =>
-      handlers[IPC_CHANNELS.saveProfile]({
+      handlers[IPC_CHANNELS.saveProvider]({
         name: '',
         provider: 'mock',
-        baseUrl: 'http://127.0.0.1:3000/v1',
-        model: 'mock-model',
-        apiKeyRef: 'secure-store:mock'
+        baseUrl: 'http://127.0.0.1:3000/v1'
       })
     ).toThrow('名称不能为空')
     expect(() =>
-      handlers[IPC_CHANNELS.saveProfile]({
+      handlers[IPC_CHANNELS.saveProvider]({
         name: '本地 Mock',
         provider: 'mock',
-        baseUrl: 'file:///tmp/model',
-        model: 'mock-model',
-        apiKeyRef: 'secure-store:mock'
+        baseUrl: 'file:///tmp/model'
       })
     ).toThrow('基础地址必须是 HTTP 或 HTTPS URL')
     expect(() =>
-      handlers[IPC_CHANNELS.saveProfile]({
-        name: '本地 Mock',
-        provider: 'mock',
-        baseUrl: 'http://127.0.0.1:3000/v1',
-        model: 'mock-model',
-        apiKeyRef: 'sk-should-not-store'
+      handlers[IPC_CHANNELS.saveModel]({
+        name: 'Mock 模型',
+        providerId: '',
+        model: 'mock-model'
       })
-    ).toThrow('密钥引用必须使用 secure-store:<id> 格式')
+    ).toThrow('提供商 ID不能为空')
+  })
+
+  it('测试模型连接时会使用已保存提供商的基础地址和密钥', async () => {
+    let testerInput: RunnableModel | undefined
+    const handlers = createIpcHandlers({
+      jobStore: createFakeJobStore(),
+      modelProfileStore: createFakeModelProfileStore(),
+      workspaceDir: 'C:\\workspace',
+      showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+      modelConnectionTester: async (input) => {
+        testerInput = input
+        return {
+          ok: true,
+          status: 200,
+          message: '连接成功',
+          latencyMs: 12
+        }
+      }
+    })
+
+    await expect(getTestModelConnectionHandler(handlers)('model-1')).resolves.toEqual({
+      ok: true,
+      status: 200,
+      message: '连接成功',
+      latencyMs: 12
+    })
+    expect(testerInput).toEqual({
+      model: {
+        id: 'model-1',
+        name: 'Minimax M3',
+        providerId: 'provider-1',
+        model: 'minimax-m3',
+        createdAt: '2026-07-01T00:00:00.000Z',
+        updatedAt: '2026-07-01T00:00:00.000Z'
+      },
+      provider: {
+        id: 'provider-1',
+        name: 'OpenCode Go',
+        provider: 'opencode-go',
+        baseUrl: 'https://opencode.ai/zen/go/v1',
+        apiKey: 'sk-test'
+      }
+    })
   })
 
   it('运行任务时会更新状态、调用 Worker 并转发实时事件', async () => {
@@ -375,8 +549,10 @@ describe('desktop IPC 白名单 API', () => {
       workerCwd: 'C:\\repo\\python',
       inputPath: job.inputPath,
       outputDir: job.outputDir,
-      provider: job.provider,
-      model: job.model,
+      provider: 'opencode-go',
+      model: 'minimax-m3',
+      baseUrl: 'https://opencode.ai/zen/go/v1',
+      apiKey: 'sk-test',
       target: job.targetFramework,
       pageKind: job.pageKind
     })
@@ -482,6 +658,7 @@ describe('desktop IPC 白名单 API', () => {
     const job = jobStore.createJob({
       inputPath: join(outputDir, 'input.png'),
       outputDir,
+      modelConfigId: 'model-1',
       provider: 'mock-provider',
       model: 'mock-model',
       targetFramework: 'react',
@@ -517,6 +694,7 @@ describe('desktop IPC 白名单 API', () => {
     const job = jobStore.createJob({
       inputPath: join(outputDir, 'input.png'),
       outputDir,
+      modelConfigId: 'model-1',
       provider: 'mock-provider',
       model: 'mock-model',
       targetFramework: 'html',
