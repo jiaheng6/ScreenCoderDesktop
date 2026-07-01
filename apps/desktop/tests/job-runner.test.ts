@@ -232,11 +232,33 @@ function createFakeScreenCoderCore(directory: string): string {
   mkdirSync(coreDir, { recursive: true })
   writeFileSync(
     join(coreDir, 'main.py'),
+    "raise SystemExit('测试不应调用会吞日志的 main.py')\n",
+    'utf8'
+  )
+  writeFileSync(
+    join(coreDir, 'block_parsor.py'),
     [
       'import os',
       'from pathlib import Path',
       "assert os.environ['OPENCODE_API_KEY'] == 'sk-test'",
       "assert Path('data/input/test1.png').exists()",
+      "print('block_parsor.py done', flush=True)",
+      "Path('data/tmp').mkdir(parents=True, exist_ok=True)",
+      "Path('data/tmp/test1_bboxes.json').write_text('{}', encoding='utf-8')"
+    ].join('\n'),
+    'utf8'
+  )
+  for (const scriptName of ['html_generator.py', 'image_box_detection.py', 'mapping.py']) {
+    writeFileSync(join(coreDir, scriptName), `print('${scriptName} done', flush=True)\n`, 'utf8')
+  }
+  const uiedDir = join(coreDir, 'UIED')
+  mkdirSync(uiedDir, { recursive: true })
+  writeFileSync(join(uiedDir, 'run_single.py'), "print('run_single.py done', flush=True)\n", 'utf8')
+  writeFileSync(
+    join(coreDir, 'image_replacer.py'),
+    [
+      'from pathlib import Path',
+      "print('image_replacer.py done', flush=True)",
       "Path('data/output').mkdir(parents=True, exist_ok=True)",
       "Path('data/output/test1_layout_final.html').write_text('<main>真实 ScreenCoder 产物</main>', encoding='utf-8')"
     ].join('\n'),

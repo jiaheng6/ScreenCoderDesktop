@@ -110,12 +110,43 @@ def test_cli_run_输入文件不存在时输出失败事件(tmp_path: Path) -> N
 def create_fake_screencoder_core(core_dir: Path) -> Path:
     core_dir.mkdir(parents=True)
     (core_dir / "main.py").write_text(
+        "raise SystemExit('测试不应调用会吞日志的 main.py')\n",
+        encoding="utf-8",
+    )
+    (core_dir / "block_parsor.py").write_text(
         "\n".join(
             [
                 "import os",
                 "from pathlib import Path",
                 "assert os.environ['OPENCODE_API_KEY'] == 'sk-test'",
                 "assert Path('data/input/test1.png').exists()",
+                "print('block_parsor.py done', flush=True)",
+                "Path('data/tmp').mkdir(parents=True, exist_ok=True)",
+                "Path('data/tmp/test1_bboxes.json').write_text('{}', encoding='utf-8')",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    for script_name in [
+        "html_generator.py",
+        "image_box_detection.py",
+        "mapping.py",
+    ]:
+        (core_dir / script_name).write_text(
+            f"print('{script_name} done', flush=True)\n",
+            encoding="utf-8",
+        )
+    uied_dir = core_dir / "UIED"
+    uied_dir.mkdir()
+    (uied_dir / "run_single.py").write_text(
+        "print('run_single.py done', flush=True)\n",
+        encoding="utf-8",
+    )
+    (core_dir / "image_replacer.py").write_text(
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "print('image_replacer.py done', flush=True)",
                 "Path('data/output').mkdir(parents=True, exist_ok=True)",
                 "Path('data/output/test1_layout_final.html').write_text('<main>真实 ScreenCoder 产物</main>', encoding='utf-8')",
             ]

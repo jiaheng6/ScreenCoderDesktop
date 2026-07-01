@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 
 from .contracts import RunConfig, artifact_event, stage_event
 
@@ -47,6 +48,18 @@ REQUIRED_RUNTIME_MODULES = {
     "sklearn": "scikit-learn",
     "scipy": "scipy",
 }
+
+SCREENCODER_SCRIPTS = [
+    ("block_parsor", Path("block_parsor.py")),
+    ("html_generator", Path("html_generator.py")),
+    ("image_box_detection", Path("image_box_detection.py")),
+    ("uied_detection", Path("UIED") / "run_single.py"),
+    ("mapping", Path("mapping.py")),
+    ("image_replacer", Path("image_replacer.py")),
+]
+
+DEFAULT_HEARTBEAT_SECONDS = 30
+DEFAULT_SCRIPT_TIMEOUT_SECONDS = 900
 
 
 def run_pipeline(config: RunConfig) -> Iterator[dict[str, object]]:
@@ -153,7 +166,7 @@ def _prepare_runtime_core(
 
 
 def _assert_runtime_dependencies(runtime_dir: Path) -> None:
-    if not (runtime_dir / "block_parsor.py").exists():
+    if not (runtime_dir / "requirements.txt").exists():
         return
 
     missing_modules = [
@@ -205,18 +218,36 @@ def _patch_runtime_model_config(runtime_dir: Path) -> None:
 
 
 def _run_core_process(runtime_dir: Path, config: RunConfig) -> Iterator[dict[str, object]]:
+    for stage_name, script_path in SCREENCODER_SCRIPTS:
+        script_label = script_path.as_posix()
+        if not (runtime_dir / script_path).exists():
+            raise WorkerError(f"ScreenCoder 脚本不存在：{script_label}")
+
+        yield stage_event(stage_name, "running", script=script_label)
+        exit_code = yield from _run_script_process(runtime_dir, config, script_path)
+        if exit_code != 0:
+            yield stage_event(
+                stage_name,
+                "failed",
+                script=script_label,
+                exit_code=exit_code,
+            )
+            return exit_code
+        yield stage_event(stage_name, "done", script=script_label)
+
+    return 0
+
+
+def _run_script_process(
+    runtime_dir: Path,
+    config: RunConfig,
+    script_path: Path,
+) -> Iterator[dict[str, object]]:
+    script_label = script_path.as_posix()
     process = subprocess.Popen(
-        [sys.executable, "main.py"],
+        [sys.executable, "-u", script_label],
         cwd=runtime_dir,
-        env={
-            **os.environ,
-            "OPENCODE_API_KEY": config.api_key,
-            "SCREENCODER_API_KEY": config.api_key,
-            "SCREENCODER_PROVIDER": config.provider,
-            "SCREENCODER_MODEL": config.model,
-            "SCREENCODER_BASE_URL": config.base_url,
-            "PYTHONIOENCODING": "utf-8",
-        },
+        env=_create_core_env(config),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -234,10 +265,38 @@ def _run_core_process(runtime_dir: Path, config: RunConfig) -> Iterator[dict[str
         thread.start()
 
     active_streams = len(threads)
+    started_at = time.monotonic()
+    last_event_at = started_at
+    heartbeat_seconds = _heartbeat_seconds()
+    timeout_seconds = _script_timeout_seconds()
     while active_streams > 0:
         try:
             stream_name, line = lines.get(timeout=0.1)
         except Empty:
+            now = time.monotonic()
+            if process.poll() is None and now - last_event_at >= heartbeat_seconds:
+                yield {
+                    "type": "heartbeat",
+                    "script": script_label,
+                    "elapsedSeconds": int(now - started_at),
+                }
+                last_event_at = now
+
+            if process.poll() is None and now - started_at >= timeout_seconds:
+                process.kill()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+                for thread in threads:
+                    thread.join(timeout=1)
+                yield {
+                    "type": "log",
+                    "stream": "stderr",
+                    "line": f"ScreenCoder 脚本超时：{script_label}",
+                }
+                return 124
+
             continue
 
         if line is None:
@@ -245,6 +304,7 @@ def _run_core_process(runtime_dir: Path, config: RunConfig) -> Iterator[dict[str
             continue
 
         if line:
+            last_event_at = time.monotonic()
             yield {
                 "type": "log",
                 "stream": stream_name,
@@ -255,6 +315,40 @@ def _run_core_process(runtime_dir: Path, config: RunConfig) -> Iterator[dict[str
         thread.join(timeout=1)
 
     return process.wait()
+
+
+def _create_core_env(config: RunConfig) -> dict[str, str]:
+    return {
+        **os.environ,
+        "OPENCODE_API_KEY": config.api_key,
+        "SCREENCODER_API_KEY": config.api_key,
+        "SCREENCODER_PROVIDER": config.provider,
+        "SCREENCODER_MODEL": config.model,
+        "SCREENCODER_BASE_URL": config.base_url,
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUNBUFFERED": "1",
+    }
+
+
+def _heartbeat_seconds() -> int:
+    return max(1, _int_from_env("SCREENCODER_HEARTBEAT_SECONDS", DEFAULT_HEARTBEAT_SECONDS))
+
+
+def _script_timeout_seconds() -> int:
+    return max(
+        1,
+        _int_from_env("SCREENCODER_SCRIPT_TIMEOUT_SECONDS", DEFAULT_SCRIPT_TIMEOUT_SECONDS),
+    )
+
+
+def _int_from_env(name: str, fallback: int) -> int:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return fallback
+    try:
+        return int(value)
+    except ValueError:
+        return fallback
 
 
 def _read_process_stream(
