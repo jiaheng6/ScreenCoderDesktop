@@ -31,9 +31,39 @@ def run_pipeline(config: RunConfig) -> Iterator[dict[str, object]]:
 
     yield stage_event("html_generation", "running")
     final_html.write_text(_render_mock_html(config), encoding="utf-8")
+    source_artifact = _write_source_artifact(config, final_html.read_text(encoding="utf-8"))
     yield artifact_event("final", final_html)
+    if source_artifact is not None:
+        yield artifact_event("source", source_artifact)
     yield stage_event("html_generation", "done")
     yield stage_event("final", "done", output=str(final_html))
+
+
+def _write_source_artifact(config: RunConfig, html: str) -> Path | None:
+    output_dir = Path(config.output_dir)
+
+    if config.target == "vue3":
+        from .exporters.vue3 import export_vue3
+
+        export_path = output_dir / "ScreenCoderPage.vue"
+        export_path.write_text(export_vue3(html), encoding="utf-8")
+        return export_path
+
+    if config.target == "vue2":
+        from .exporters.vue2 import export_vue2
+
+        export_path = output_dir / "ScreenCoderPage.vue"
+        export_path.write_text(export_vue2(html), encoding="utf-8")
+        return export_path
+
+    if config.target == "react":
+        from .exporters.react import export_react
+
+        export_path = output_dir / "ScreenCoderPage.tsx"
+        export_path.write_text(export_react(html), encoding="utf-8")
+        return export_path
+
+    return None
 
 
 def _render_mock_html(config: RunConfig) -> str:

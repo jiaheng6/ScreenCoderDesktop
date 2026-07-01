@@ -38,3 +38,28 @@ def test_run_pipeline_复制输入并生成最终产物(tmp_path: Path) -> None:
         {"type": "stage", "stage": "html_generation", "status": "done"},
         {"type": "stage", "stage": "final", "status": "done", "output": str(final_html)},
     ]
+
+
+def test_run_pipeline_按目标框架生成源码产物(tmp_path: Path) -> None:
+    input_path = tmp_path / "screen.png"
+    output_dir = tmp_path / "output"
+    input_path.write_bytes(b"mock image bytes")
+
+    events = list(
+        run_pipeline(
+            RunConfig(
+                input_path=input_path,
+                output_dir=output_dir,
+                provider="mock",
+                model="mock-model",
+                target="react",
+                page_kind="web",
+            )
+        )
+    )
+
+    source_path = output_dir / "ScreenCoderPage.tsx"
+
+    assert source_path.exists()
+    assert "export function ScreenCoderPage" in source_path.read_text(encoding="utf-8")
+    assert {"type": "artifact", "name": "source", "path": str(source_path)} in events
