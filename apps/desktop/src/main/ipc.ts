@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { runWorker as defaultRunWorker, type RunWorkerInput, type WorkerEvent } from './jobs/job-runner'
 import type { CreateJobInput, JobRecord, JobStatus, JobStore } from './jobs/job-store'
 import {
@@ -61,6 +62,7 @@ export type ShowOpenDialog = (options: ShowOpenDialogOptions) => Promise<ShowOpe
 export interface JobPreview {
   jobId: string
   htmlPath: string
+  htmlUrl: string
   html: string
   sourcePath: string | null
   source: string | null
@@ -417,6 +419,7 @@ function readJobPreview(job: JobRecord): JobPreview {
   return {
     jobId: job.id,
     htmlPath: finalHtml.path,
+    htmlUrl: pathToFileURL(finalHtml.path).href,
     html: finalHtml.content,
     sourcePath: sourceFile?.path ?? null,
     source: sourceFile?.content ?? null

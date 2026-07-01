@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   createIpcHandlers,
@@ -710,6 +711,7 @@ describe('desktop IPC 白名单 API', () => {
       expect(getReadJobPreviewHandler(handlers)(job.id)).toEqual({
         jobId: job.id,
         htmlPath: finalHtmlPath,
+        htmlUrl: pathToFileURL(finalHtmlPath).href,
         html: '<main>最终页面</main>',
         sourcePath,
         source: 'export function ScreenCoderPage() {}'

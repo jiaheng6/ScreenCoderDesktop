@@ -100,6 +100,7 @@ def run_pipeline(config: RunConfig) -> Iterator[dict[str, object]]:
 
     source_html = _resolve_screencoder_output(runtime_dir)
     copyfile(source_html, final_html)
+    _copy_output_assets(source_html, output_dir)
     source_artifact = _write_source_artifact(config, final_html.read_text(encoding="utf-8"))
     yield artifact_event("final", final_html)
     if source_artifact is not None:
@@ -376,6 +377,28 @@ def _resolve_screencoder_output(runtime_dir: Path) -> Path:
             return candidate
 
     raise WorkerError("ScreenCoder 未生成 HTML 产物")
+
+
+def _copy_output_assets(source_html: Path, output_dir: Path) -> None:
+    source_output_dir = source_html.parent
+    if source_output_dir.resolve() == output_dir.resolve():
+        return
+
+    for item in source_output_dir.iterdir():
+        if item == source_html or item.suffix.lower() == ".html":
+            continue
+
+        destination = output_dir / item.name
+        if destination.exists():
+            if destination.is_dir() and not destination.is_symlink():
+                rmtree(destination)
+            else:
+                destination.unlink()
+
+        if item.is_dir():
+            copytree(item, destination)
+        elif item.is_file():
+            copy2(item, destination)
 
 
 def _write_source_artifact(config: RunConfig, html: str) -> Path | None:

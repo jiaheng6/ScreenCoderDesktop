@@ -106,6 +106,7 @@ function App(): JSX.Element {
           type: 'html',
           jobId: preview.jobId,
           htmlPath: preview.htmlPath,
+          htmlUrl: preview.htmlUrl,
           html: preview.html,
           sourcePath: preview.sourcePath,
           source: preview.source

@@ -29,11 +29,13 @@ def test_run_pipeline_复制输入并调用真实_screencoder_core(tmp_path: Pat
 
     copied_input = output_dir / "input.png"
     final_html = output_dir / "final.html"
+    copied_asset = output_dir / "cropped_images" / "ph0.png"
     runtime_input = output_dir / "screencoder-work" / "data" / "input" / "test1.png"
 
     assert copied_input.read_bytes() == input_bytes
     assert runtime_input.read_bytes() == input_bytes
     assert final_html.read_text(encoding="utf-8") == "<main>真实 ScreenCoder 产物</main>"
+    assert copied_asset.read_bytes() == b"fake cropped image"
     assert {"type": "artifact", "name": "final", "path": str(final_html)} in events
     assert {"type": "stage", "stage": "final", "status": "done", "output": str(final_html)} in events
     assert {
@@ -120,6 +122,8 @@ def create_fake_screencoder_core(core_dir: Path) -> Path:
                 "from pathlib import Path",
                 "print('image_replacer.py done', flush=True)",
                 "Path('data/output').mkdir(parents=True, exist_ok=True)",
+                "Path('data/output/cropped_images').mkdir(parents=True, exist_ok=True)",
+                "Path('data/output/cropped_images/ph0.png').write_bytes(b'fake cropped image')",
                 "Path('data/output/test1_layout_final.html').write_text('<main>真实 ScreenCoder 产物</main>', encoding='utf-8')",
             ]
         ),

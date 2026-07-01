@@ -67,6 +67,7 @@ export interface ScreencoderJobEventPayload {
 export interface ScreencoderJobPreview {
   jobId: string
   htmlPath: string
+  htmlUrl: string
   html: string
   sourcePath: string | null
   source: string | null
