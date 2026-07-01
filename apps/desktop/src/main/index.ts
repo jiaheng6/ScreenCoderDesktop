@@ -1,5 +1,12 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
+import { registerIpcHandlers } from './ipc'
+import { JobStore } from './jobs/job-store'
+import { ModelProfileStore } from './models/model-profile-store'
+import { getDatabasePath, getWorkspaceDir } from './paths'
+
+let jobStore: JobStore | null = null
+let modelProfileStore: ModelProfileStore | null = null
 
 function getDevRendererUrl(): string | null {
   const rendererUrl = process.env.ELECTRON_RENDERER_URL
@@ -46,7 +53,33 @@ function createWindow(): void {
   mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
 }
 
+function registerDesktopServices(): void {
+  if (jobStore || modelProfileStore) {
+    return
+  }
+
+  const databasePath = getDatabasePath()
+  jobStore = new JobStore(databasePath)
+  modelProfileStore = new ModelProfileStore(databasePath)
+
+  registerIpcHandlers({
+    ipcMain,
+    jobStore,
+    modelProfileStore,
+    workspaceDir: getWorkspaceDir(),
+    showOpenDialog: (options) => dialog.showOpenDialog(options)
+  })
+}
+
+function closeDesktopServices(): void {
+  modelProfileStore?.close()
+  modelProfileStore = null
+  jobStore?.close()
+  jobStore = null
+}
+
 app.whenReady().then(() => {
+  registerDesktopServices()
   createWindow()
 
   app.on('activate', () => {
@@ -54,6 +87,10 @@ app.whenReady().then(() => {
       createWindow()
     }
   })
+})
+
+app.on('before-quit', () => {
+  closeDesktopServices()
 })
 
 app.on('window-all-closed', () => {
