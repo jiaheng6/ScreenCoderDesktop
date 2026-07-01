@@ -40,6 +40,8 @@ pnpm --filter @screencoder/desktop build
 pnpm python:test
 ```
 
+项目根目录的 `.npmrc` 配置了 Electron 二进制下载镜像，用于避免 `pnpm install` 或 `pnpm dev` 时因默认下载源不可达导致 Electron 安装不完整。
+
 ## MVP 状态
 
 改造成 Electron 桌面端可行，但不建议直接把现有 Python 脚本嵌入界面调用。应先把 ScreenCoder 流水线改造成参数化 Python Worker，再由 Electron 主进程调度任务，渲染进程只负责交互、日志、预览和历史管理。

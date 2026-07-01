@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import Database from 'better-sqlite3'
+import { DatabaseSync } from 'node:sqlite'
 
 export interface ModelProfileInput {
   name: string
@@ -29,11 +29,11 @@ interface ModelProfileRow {
 }
 
 export class ModelProfileStore {
-  private readonly database: Database.Database
+  private readonly database: DatabaseSync
 
   constructor(databasePath: string) {
     mkdirSync(dirname(databasePath), { recursive: true })
-    this.database = new Database(databasePath)
+    this.database = new DatabaseSync(databasePath)
     this.database.exec(`
       CREATE TABLE IF NOT EXISTS model_profiles (
         id TEXT PRIMARY KEY,
@@ -90,7 +90,7 @@ export class ModelProfileStore {
   listProfiles(): ModelProfileRecord[] {
     const rows = this.database
       .prepare('SELECT * FROM model_profiles ORDER BY created_at DESC, rowid DESC')
-      .all() as ModelProfileRow[]
+      .all() as unknown as ModelProfileRow[]
 
     return rows.map(mapProfileRow)
   }
