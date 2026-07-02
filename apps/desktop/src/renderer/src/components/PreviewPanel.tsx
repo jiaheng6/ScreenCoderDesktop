@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { calculateHtmlPreviewMetrics, type PreviewScaleMode } from '../preview-scaling'
 
 export interface PreviewImageArtifact {
@@ -376,26 +376,39 @@ function HtmlFitPreviewStage({ preview }: HtmlFitPreviewStageProps): JSX.Element
   const previewWidth = preview.imageWidth ?? 1
   const previewHeight = preview.imageHeight ?? 1
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const shell = shellRef.current
     if (!shell) {
       return
     }
 
     const updateAvailableWidth = (): void => {
-      setAvailableWidth(shell.clientWidth)
+      setAvailableWidth(getMeasuredPreviewWidth(shell))
     }
 
     updateAvailableWidth()
+    const frameId = window.requestAnimationFrame(updateAvailableWidth)
 
     if (typeof ResizeObserver === 'undefined') {
       window.addEventListener('resize', updateAvailableWidth)
-      return () => window.removeEventListener('resize', updateAvailableWidth)
+      return () => {
+        window.cancelAnimationFrame(frameId)
+        window.removeEventListener('resize', updateAvailableWidth)
+      }
     }
 
     const observer = new ResizeObserver(updateAvailableWidth)
     observer.observe(shell)
-    return () => observer.disconnect()
+    if (shell.parentElement) {
+    observer.observe(shell.parentElement)
+    }
+
+    window.addEventListener('resize', updateAvailableWidth)
+    return () => {
+      window.cancelAnimationFrame(frameId)
+      window.removeEventListener('resize', updateAvailableWidth)
+      observer.disconnect()
+    }
   }, [])
 
   const metrics = calculateHtmlPreviewMetrics({
@@ -417,7 +430,7 @@ function HtmlFitPreviewStage({ preview }: HtmlFitPreviewStageProps): JSX.Element
 
   return (
     <div className="preview-html-fit-shell" ref={shellRef}>
-      <div className="preview-stage preview-html-stage is-fit" style={stageStyle}>
+      <div className="preview-stage preview-html-stage is-fit" style={stageStyle} aria-hidden={metrics.scale === 0}>
         <iframe
           className="preview-frame preview-frame-scaled"
           sandbox="allow-scripts"
@@ -428,6 +441,26 @@ function HtmlFitPreviewStage({ preview }: HtmlFitPreviewStageProps): JSX.Element
       </div>
     </div>
   )
+}
+
+function getMeasuredPreviewWidth(shell: HTMLDivElement): number {
+  const measuredElements = [shell, shell.parentElement].filter(Boolean) as HTMLElement[]
+
+  for (const element of measuredElements) {
+    const rect = element.getBoundingClientRect()
+    const horizontalPadding = getHorizontalPadding(element)
+    const contentWidth = rect.width - horizontalPadding
+    if (contentWidth > 0) {
+      return contentWidth
+    }
+  }
+
+  return 0
+}
+
+function getHorizontalPadding(element: HTMLElement): number {
+  const style = window.getComputedStyle(element)
+  return parseFloat(style.paddingLeft || '0') + parseFloat(style.paddingRight || '0')
 }
 
 interface PathBlockProps {

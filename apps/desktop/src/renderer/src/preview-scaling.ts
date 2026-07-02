@@ -23,7 +23,7 @@ export function calculateHtmlPreviewMetrics({
 }: CalculateHtmlPreviewMetricsInput): HtmlPreviewMetrics {
   const safeWidth = Math.max(1, width)
   const safeHeight = Math.max(1, height)
-  const available = isPositiveNumber(availableWidth) ? availableWidth : safeWidth
+  const available = isPositiveNumber(availableWidth) ? availableWidth : 0
   const scale = scaleMode === 'fit' ? Math.min(1, available / safeWidth) : 1
 
   return {

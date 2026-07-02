@@ -44,4 +44,19 @@ describe('HTML 预览缩放', () => {
       }).scale
     ).toBe(1)
   })
+
+  it('适合窗口尚未测得可用宽度时不会回退成原始大尺寸', () => {
+    const metrics = calculateHtmlPreviewMetrics({
+      width: 3368,
+      height: 1710,
+      scaleMode: 'fit',
+      availableWidth: 0
+    })
+
+    expect(metrics.scale).toBe(0)
+    expect(metrics.stageWidth).toBe(0)
+    expect(metrics.stageHeight).toBe(0)
+    expect(metrics.frameWidth).toBe(3368)
+    expect(metrics.frameHeight).toBe(1710)
+  })
 })
