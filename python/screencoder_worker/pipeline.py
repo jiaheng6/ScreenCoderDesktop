@@ -245,6 +245,8 @@ def _patch_runtime_model_config(runtime_dir: Path, config: RunConfig) -> None:
         )
         if config.page_kind == "mobile":
             content = _patch_mobile_html_generator_prompt(content)
+        if config.target != "html":
+            content = _patch_framework_safe_html_prompt(content, config.target)
         html_generator.write_text(content, encoding="utf-8")
 
 
@@ -299,6 +301,38 @@ if os.environ.get("SCREENCODER_PAGE_KIND") == "mobile":
         name: f"{{prompt}}\\n\\n{{MOBILE_GENERATION_REQUIREMENT}}"
         for name, prompt in PROMPT_DICT.items()
     }}
+'''
+    anchor = "# Support refining the generated code."
+    if anchor in content:
+        return content.replace(anchor, f"{patch}\n{anchor}", 1)
+
+    return f"{content}\n{patch}"
+
+
+def _patch_framework_safe_html_prompt(content: str, target: str) -> str:
+    marker = "SCREENCODER_DESKTOP_FRAMEWORK_SAFE_PROMPT_PATCH"
+    if marker in content or "PROMPT_DICT" not in content:
+        return content
+
+    target_label = {
+        "react": "React",
+        "vue2": "Vue 2",
+        "vue3": "Vue 3",
+    }.get(target, target)
+    patch = f'''
+# {marker}
+FRAMEWORK_SAFE_HTML_REQUIREMENT = """
+目标框架源码生成要求（{target_label}）：
+1. 最终源码会从 HTML 自动转换为 {target_label} 组件，请输出结构清晰、可转换的容器内部 HTML。
+2. 不要输出 <!DOCTYPE>、<html>、<head>、<body>、<script>、CDN 脚本或事件脚本。
+3. 属性请保持标准 HTML 写法，例如 class、style、for、viewBox、stroke-width，避免混入 Vue 或 React 模板语法。
+4. 避免依赖运行时脚本修改 DOM，交互状态用静态结构和样式表达。
+"""
+
+PROMPT_DICT = {{
+    name: f"{{prompt}}\\n\\n{{FRAMEWORK_SAFE_HTML_REQUIREMENT}}"
+    for name, prompt in PROMPT_DICT.items()
+}}
 '''
     anchor = "# Support refining the generated code."
     if anchor in content:
@@ -416,6 +450,7 @@ def _create_core_env(config: RunConfig) -> dict[str, str]:
         "SCREENCODER_MODEL": config.model,
         "SCREENCODER_BASE_URL": config.base_url,
         "SCREENCODER_PAGE_KIND": config.page_kind,
+        "SCREENCODER_TARGET_FRAMEWORK": config.target,
         "PYTHONIOENCODING": "utf-8",
         "PYTHONUNBUFFERED": "1",
     }

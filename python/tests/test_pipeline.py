@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from screencoder_worker.contracts import RunConfig
-from screencoder_worker.pipeline import run_pipeline
+from screencoder_worker.pipeline import _patch_runtime_model_config, run_pipeline
 
 
 def test_run_pipeline_复制输入并调用真实_screencoder_core(tmp_path: Path, monkeypatch) -> None:
@@ -74,10 +74,43 @@ def test_run_pipeline_按目标框架生成源码产物(tmp_path: Path, monkeypa
     )
 
     source_path = output_dir / "ScreenCoderPage.tsx"
+    runtime_target = (
+        output_dir / "screencoder-work" / "data" / "tmp" / "target.txt"
+    ).read_text(encoding="utf-8")
 
     assert source_path.exists()
+    assert runtime_target == "react"
     assert "export function ScreenCoderPage" in source_path.read_text(encoding="utf-8")
     assert {"type": "artifact", "name": "source", "path": str(source_path)} in events
+
+
+def test_patch_runtime_model_config_目标框架源码会加入转换友好提示(tmp_path: Path) -> None:
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    (runtime_dir / "html_generator.py").write_text(
+        'PROMPT_DICT = {"main content": "原提示"}\n# Support refining the generated code.\n',
+        encoding="utf-8",
+    )
+
+    _patch_runtime_model_config(
+        runtime_dir,
+        RunConfig(
+            input_path=tmp_path / "screen.png",
+            output_dir=tmp_path / "output",
+            provider="opencode-go",
+            model="minimax-m3",
+            base_url="https://opencode.ai/zen/go/v1",
+            api_key="sk-test",
+            target="react",
+            page_kind="web",
+        ),
+    )
+
+    content = (runtime_dir / "html_generator.py").read_text(encoding="utf-8")
+
+    assert "SCREENCODER_DESKTOP_FRAMEWORK_SAFE_PROMPT_PATCH" in content
+    assert "目标框架源码" in content
+    assert "React" in content
 
 
 def test_run_pipeline_移动端任务会注入页面类型和移动端约束(tmp_path: Path, monkeypatch) -> None:
@@ -138,10 +171,23 @@ def create_fake_screencoder_core(core_dir: Path) -> Path:
         "image_box_detection.py",
         "mapping.py",
     ]:
-        (core_dir / script_name).write_text(
-            f"print('{script_name} done', flush=True)\n",
-            encoding="utf-8",
-        )
+        if script_name == "html_generator.py":
+            (core_dir / script_name).write_text(
+                "\n".join(
+                    [
+                        "import os",
+                        "from pathlib import Path",
+                        "Path('data/tmp/target.txt').write_text(os.environ['SCREENCODER_TARGET_FRAMEWORK'], encoding='utf-8')",
+                        "print('html_generator.py done', flush=True)",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+        else:
+            (core_dir / script_name).write_text(
+                f"print('{script_name} done', flush=True)\n",
+                encoding="utf-8",
+            )
     uied_dir = core_dir / "UIED"
     uied_dir.mkdir()
     (uied_dir / "run_single.py").write_text(
