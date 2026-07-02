@@ -9,6 +9,7 @@
     "tests/**/*.ts",
     "src/main/**/*.ts",
     "src/renderer/src/global.d.ts",
-    "src/renderer/src/model-selection.ts"
+    "src/renderer/src/model-selection.ts",
+    "src/renderer/src/preview-scaling.ts"
   ]
 }
