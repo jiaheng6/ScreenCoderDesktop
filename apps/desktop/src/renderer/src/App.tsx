@@ -134,6 +134,8 @@ function App(): JSX.Element {
           previewHtml: preview.previewHtml,
           imageWidth: preview.imageWidth,
           imageHeight: preview.imageHeight,
+          inputPreview: preview.inputPreview,
+          annotationPreview: preview.annotationPreview,
           html: preview.html,
           sourcePath: preview.sourcePath,
           source: preview.source

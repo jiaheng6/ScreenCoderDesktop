@@ -164,6 +164,7 @@ def parse_bboxes(bbox_input: str, image_path: str) -> dict[str, tuple[int, int, 
             use_scaled_frame = max_x > 1000 or max_y > 1000
             frame_w = w if max_x >= w * 0.75 else max_x
             frame_h = h if max_y >= h * 0.75 else max_y
+            raw_bboxes = {}
 
             for name, coords in parsed_items:
                 x_min, y_min, x_max, y_max = coords
@@ -175,7 +176,10 @@ def parse_bboxes(bbox_input: str, image_path: str) -> dict[str, tuple[int, int, 
                     y_min = int(max(0, min(y_min, frame_h)) * 1000 / frame_h)
                     y_max = int(max(0, min(y_max, frame_h)) * 1000 / frame_h)
 
-                bboxes[name] = (x_min, y_min, x_max, y_max)
+                raw_bboxes[name] = clamp_bbox((x_min, y_min, x_max, y_max))
+
+            bboxes = repair_mobile_truncated_full_width_bboxes(raw_bboxes, w, h)
+            for name, bbox in bboxes.items():
                 print(f"Successfully parsed {name}: {bboxes[name]}")
 
     except Exception as e:
@@ -185,6 +189,65 @@ def parse_bboxes(bbox_input: str, image_path: str) -> dict[str, tuple[int, int, 
 
     print("Final parsed bboxes:", bboxes)
     return bboxes
+
+def clamp_bbox(bbox: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    x_min, y_min, x_max, y_max = bbox
+    x_min = max(0, min(1000, x_min))
+    x_max = max(0, min(1000, x_max))
+    y_min = max(0, min(1000, y_min))
+    y_max = max(0, min(1000, y_max))
+    if x_max < x_min:
+        x_min, x_max = x_max, x_min
+    if y_max < y_min:
+        y_min, y_max = y_max, y_min
+
+    return (x_min, y_min, x_max, y_max)
+
+def repair_mobile_truncated_full_width_bboxes(
+    bboxes: dict[str, tuple[int, int, int, int]],
+    image_width: int,
+    image_height: int,
+) -> dict[str, tuple[int, int, int, int]]:
+    """修复移动端全宽区域被模型误截成局部宽度的情况。"""
+    if os.environ.get("SCREENCODER_PAGE_KIND") != "mobile":
+        return bboxes
+
+    if image_width <= 0 or image_height <= 0 or image_height < image_width * 1.2:
+        return bboxes
+
+    candidates = [
+        (name, bbox)
+        for name, bbox in bboxes.items()
+        if is_mobile_truncated_full_width_candidate(bbox)
+    ]
+    minimum_count = max(2, len(bboxes) // 2)
+    if len(candidates) < minimum_count:
+        return bboxes
+
+    right_edges = [bbox[2] for _, bbox in candidates]
+    if max(right_edges) - min(right_edges) > 120:
+        return bboxes
+
+    print(
+        "Detected mobile full-width bbox truncation; "
+        "expanding left-aligned top-level regions to x2=1000."
+    )
+    candidate_names = {name for name, _ in candidates}
+    repaired = {}
+    for name, bbox in bboxes.items():
+        x_min, y_min, x_max, y_max = bbox
+        if name in candidate_names:
+            repaired[name] = (0 if x_min <= 80 else x_min, y_min, 1000, y_max)
+        else:
+            repaired[name] = bbox
+
+    return repaired
+
+def is_mobile_truncated_full_width_candidate(bbox: tuple[int, int, int, int]) -> bool:
+    x_min, _y_min, x_max, _y_max = bbox
+    width = x_max - x_min
+
+    return x_min <= 80 and 520 <= x_max <= 760 and width >= 320
 
 def draw_bboxes(image_path: str, bboxes: dict[str, tuple[int, int, int, int]]) -> str:
     """Draw bounding boxes on image and save with different colors for each component"""

@@ -4,7 +4,7 @@ import numpy as np
 from playwright.async_api import async_playwright
 
 # ---------- Main logic ----------
-async def extract_bboxes_from_html(html_path: Path):
+async def extract_bboxes_from_html(html_path: Path, viewport_width: int = 1280, viewport_height: int = 720):
     async with async_playwright() as p:
         chrome_candidates = [
             os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE"),
@@ -16,7 +16,7 @@ async def extract_bboxes_from_html(html_path: Path):
         executable_path = next((path for path in chrome_candidates if path and Path(path).exists()), None)
         browser = await p.chromium.launch(executable_path=executable_path)
         ctx = await browser.new_context(
-            viewport={"width": 1280, "height": 720},
+            viewport={"width": max(1, viewport_width), "height": max(1, viewport_height)},
         )
         page = await ctx.new_page()
         await page.goto(html_path.resolve().as_uri())
@@ -134,7 +134,7 @@ def main(args):
 
     # Parse HTML → Get bboxes
     region_bboxes, placeholder_bboxes, layout_width, layout_height = asyncio.run(
-        extract_bboxes_from_html(args.html)
+        extract_bboxes_from_html(args.html, W, H)
     )
     if not placeholder_bboxes:
         sys.exit("Error: No gray placeholder blocks found!")

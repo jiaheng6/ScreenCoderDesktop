@@ -71,6 +71,8 @@ export interface ScreencoderJobPreview {
   previewHtml: string
   imageWidth: number | null
   imageHeight: number | null
+  inputPreview: ScreencoderImagePreview | null
+  annotationPreview: ScreencoderImagePreview | null
   html: string
   sourcePath: string | null
   source: string | null

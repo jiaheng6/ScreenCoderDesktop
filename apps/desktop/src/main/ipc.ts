@@ -75,6 +75,8 @@ export interface JobPreview {
   previewHtml: string
   imageWidth: number | null
   imageHeight: number | null
+  inputPreview: ImagePreview | null
+  annotationPreview: ImagePreview | null
   html: string
   sourcePath: string | null
   source: string | null
@@ -367,6 +369,11 @@ function validateInputImagePath(inputPath: string): string {
 
 function readImagePreview(inputPath: string): ImagePreview {
   const safeInputPath = validateInputImagePath(inputPath)
+
+  return readImageFilePreview(safeInputPath)
+}
+
+function readImageFilePreview(safeInputPath: string): ImagePreview {
   const extension = extname(safeInputPath).toLowerCase()
   const mediaType =
     extension === '.jpg' || extension === '.jpeg'
@@ -466,6 +473,8 @@ function readJobPreview(job: JobRecord): JobPreview {
     ? readOptionalOutputFile(job.outputDir, sourceFileName)
     : null
   const imageDimensions = readOptionalImageDimensions(job.inputPath)
+  const inputPreview = readOptionalExistingImagePreview(job.inputPath)
+  const annotationPreview = readOptionalAnnotationPreview(job.outputDir)
 
   return {
     jobId: job.id,
@@ -474,10 +483,57 @@ function readJobPreview(job: JobRecord): JobPreview {
     previewHtml: buildPreviewHtml(finalHtml.content, finalHtml.path),
     imageWidth: imageDimensions.imageWidth,
     imageHeight: imageDimensions.imageHeight,
+    inputPreview,
+    annotationPreview,
     html: finalHtml.content,
     sourcePath: sourceFile?.path ?? null,
     source: sourceFile?.content ?? null
   }
+}
+
+function readOptionalExistingImagePreview(path: string): ImagePreview | null {
+  if (!existsSync(path)) {
+    return null
+  }
+
+  const realPath = realpathSync(path)
+  if (!statSync(realPath).isFile()) {
+    return null
+  }
+
+  return readImageFilePreview(realPath)
+}
+
+function readOptionalAnnotationPreview(outputDir: string): ImagePreview | null {
+  if (!existsSync(outputDir)) {
+    return null
+  }
+
+  const outputRoot = realpathSync(outputDir)
+  const candidatePaths = [
+    join(outputRoot, 'screencoder-work', 'data', 'tmp', 'debug_gray_bboxes_test1.png'),
+    join(outputRoot, 'screencoder-work', 'data', 'tmp', 'test1_with_bboxes.png'),
+    join(outputRoot, 'screencoder-work', 'data', 'tmp', 'overlay_test_test1.png')
+  ]
+
+  for (const candidatePath of candidatePaths) {
+    if (!existsSync(candidatePath)) {
+      continue
+    }
+
+    const realCandidatePath = realpathSync(candidatePath)
+    if (!isPathInsideDirectory(realCandidatePath, outputRoot)) {
+      continue
+    }
+
+    if (!statSync(realCandidatePath).isFile()) {
+      continue
+    }
+
+    return readImageFilePreview(realCandidatePath)
+  }
+
+  return null
 }
 
 function collectSafeJobOutputDirectories(workspaceDir: string, jobs: JobRecord[]): string[] {

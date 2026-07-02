@@ -755,7 +755,7 @@ describe('desktop IPC 白名单 API', () => {
     }
   })
 
-  it('读取任务预览时会返回 final.html 和目标框架源码产物', () => {
+  it('读取任务预览时会返回原图、标注图、final.html 和目标框架源码产物', () => {
     const { directory, cleanup } = createTempWorkspace('screencoder-preview-')
     const outputDir = join(directory, 'job-output')
     const finalHtmlPath = join(outputDir, 'final.html')
@@ -763,17 +763,23 @@ describe('desktop IPC 白名单 API', () => {
     const inputPath = join(outputDir, 'input.png')
     const assetDir = join(outputDir, 'cropped_images')
     const assetPath = join(assetDir, 'ph0.png')
+    const annotationDir = join(outputDir, 'screencoder-work', 'data', 'tmp')
+    const annotationPath = join(annotationDir, 'debug_gray_bboxes_test1.png')
     const jobStore = createFakeJobStore()
+    const inputBytes = createPngHeader(1440, 900)
+    const annotationBytes = createPngHeader(1440, 900)
 
     mkdirSync(outputDir)
     mkdirSync(assetDir)
-    writeFileSync(inputPath, createPngHeader(1440, 900))
+    mkdirSync(annotationDir, { recursive: true })
+    writeFileSync(inputPath, inputBytes)
     writeFileSync(
       finalHtmlPath,
       '<main><img src="cropped_images/ph0.png"><img src="https://example.com/avatar.png"></main>',
       'utf8'
     )
     writeFileSync(assetPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+    writeFileSync(annotationPath, annotationBytes)
     writeFileSync(sourcePath, 'export function ScreenCoderPage() {}', 'utf8')
     const job = jobStore.createJob({
       inputPath,
@@ -802,6 +808,18 @@ describe('desktop IPC 白名单 API', () => {
         html: '<main><img src="cropped_images/ph0.png"><img src="https://example.com/avatar.png"></main>',
         previewHtml:
           '<main><img src="data:image/png;base64,iVBORw=="><img src="https://example.com/avatar.png"></main>',
+        inputPreview: {
+          path: inputPath,
+          dataUrl: `data:image/png;base64,${inputBytes.toString('base64')}`,
+          imageWidth: 1440,
+          imageHeight: 900
+        },
+        annotationPreview: {
+          path: annotationPath,
+          dataUrl: `data:image/png;base64,${annotationBytes.toString('base64')}`,
+          imageWidth: 1440,
+          imageHeight: 900
+        },
         sourcePath,
         source: 'export function ScreenCoderPage() {}'
       })
