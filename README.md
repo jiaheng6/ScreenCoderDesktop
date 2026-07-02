@@ -4,6 +4,10 @@ ScreenCoderDesktop 是一个 Electron 桌面端项目，用于把 [leigest519/Sc
 
 当前仓库阶段：生产化接入版。仓库包含 Electron 桌面端、真实 ScreenCoder Python Worker 适配器、SQLite 历史记录、提供商/模型配置、连接测试、实时日志、对比预览、HTML/Vue/React 目标框架导出和移动端布局修复。
 
+## 运行截图
+
+![ScreenCoderDesktop 运行截图](./docs/2026-07-02_184739.png)
+
 ## 当前能力
 
 - 支持拖拽或选择上传 `png`、`jpg`、`jpeg`、`webp` 截图。

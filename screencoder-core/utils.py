@@ -444,9 +444,33 @@ class OpenCodeGo(Bot):
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         }
-        response = requests.post(self.messages_url, headers=headers, json=payload, timeout=300)
-        if response.status_code >= 400:
-            raise RuntimeError(f"OpenCode Go 请求失败：HTTP {response.status_code}，{response.text[:500]}")
+        max_attempts = max(1, self.patience)
+        response = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = requests.post(self.messages_url, headers=headers, json=payload, timeout=300)
+            except requests.exceptions.RequestException as exc:
+                if attempt >= max_attempts:
+                    raise RuntimeError(f"OpenCode Go 请求失败，已重试 {attempt} 次：{exc}") from exc
+
+                self._wait_before_retry(attempt, exc)
+                continue
+
+            if response.status_code < 400:
+                break
+
+            error_message = f"OpenCode Go 请求失败：HTTP {response.status_code}，{response.text[:500]}"
+            if response.status_code == 429 or response.status_code >= 500:
+                if attempt < max_attempts:
+                    self._wait_before_retry(attempt, error_message)
+                    continue
+
+                raise RuntimeError(f"{error_message}。已重试 {attempt} 次。")
+
+            raise RuntimeError(error_message)
+
+        if response is None:
+            raise RuntimeError("OpenCode Go 请求失败：未获得响应。")
 
         data = response.json()
         text_parts = [item.get("text", "") for item in data.get("content", []) if item.get("type") == "text"]
@@ -457,3 +481,8 @@ class OpenCodeGo(Bot):
             print("####################################")
             print("response:\n", answer)
         return answer
+
+    def _wait_before_retry(self, attempt, error):
+        wait_seconds = min(2 * attempt, 10)
+        print(f"OpenCode Go 请求失败，{wait_seconds} 秒后重试（第 {attempt} 次）：{error}", flush=True)
+        time.sleep(wait_seconds)

@@ -1,4 +1,5 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { calculateHtmlPreviewMetrics, type PreviewScaleMode } from '../preview-scaling'
 
 export interface PreviewImageArtifact {
   path: string
@@ -32,7 +33,6 @@ interface PreviewPanelProps {
 }
 
 type PreviewTab = 'compare' | 'input' | 'annotation' | 'generated' | 'source'
-type PreviewScaleMode = 'actual' | 'fit'
 
 const htmlPreviewTabs: Array<{ id: PreviewTab; label: string }> = [
   { id: 'compare', label: '对比' },
@@ -350,6 +350,10 @@ function renderHtmlStage(
   preview: Extract<PreviewContent, { type: 'html' }>,
   scaleMode: PreviewScaleMode
 ): JSX.Element {
+  if (scaleMode === 'fit' && hasPreviewSize(preview.imageWidth, preview.imageHeight)) {
+    return <HtmlFitPreviewStage preview={preview} />
+  }
+
   return (
     <div className={getPreviewStageClassName(preview.imageWidth, preview.imageHeight, scaleMode)} style={getPreviewStageStyle(preview.imageWidth, preview.imageHeight)}>
       <iframe
@@ -360,6 +364,103 @@ function renderHtmlStage(
       />
     </div>
   )
+}
+
+interface HtmlFitPreviewStageProps {
+  preview: Extract<PreviewContent, { type: 'html' }>
+}
+
+function HtmlFitPreviewStage({ preview }: HtmlFitPreviewStageProps): JSX.Element {
+  const shellRef = useRef<HTMLDivElement>(null)
+  const [availableWidth, setAvailableWidth] = useState<number | null>(null)
+  const previewWidth = preview.imageWidth ?? 1
+  const previewHeight = preview.imageHeight ?? 1
+
+  useLayoutEffect(() => {
+    const shell = shellRef.current
+    if (!shell) {
+      return
+    }
+
+    const updateAvailableWidth = (): void => {
+      setAvailableWidth(getMeasuredPreviewWidth(shell))
+    }
+
+    updateAvailableWidth()
+    const frameId = window.requestAnimationFrame(updateAvailableWidth)
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateAvailableWidth)
+      return () => {
+        window.cancelAnimationFrame(frameId)
+        window.removeEventListener('resize', updateAvailableWidth)
+      }
+    }
+
+    const observer = new ResizeObserver(updateAvailableWidth)
+    observer.observe(shell)
+    if (shell.parentElement) {
+    observer.observe(shell.parentElement)
+    }
+
+    window.addEventListener('resize', updateAvailableWidth)
+    return () => {
+      window.cancelAnimationFrame(frameId)
+      window.removeEventListener('resize', updateAvailableWidth)
+      observer.disconnect()
+    }
+  }, [])
+
+  const metrics = calculateHtmlPreviewMetrics({
+    width: previewWidth,
+    height: previewHeight,
+    scaleMode: 'fit',
+    availableWidth
+  })
+  const stageStyle = {
+    ...getPreviewStageStyle(previewWidth, previewHeight),
+    width: `${metrics.stageWidth}px`,
+    height: `${metrics.stageHeight}px`
+  } as CSSProperties
+  const frameStyle = {
+    width: `${metrics.frameWidth}px`,
+    height: `${metrics.frameHeight}px`,
+    transform: `scale(${metrics.scale})`
+  } as CSSProperties
+
+  return (
+    <div className="preview-html-fit-shell" ref={shellRef}>
+      <div className="preview-stage preview-html-stage is-fit" style={stageStyle} aria-hidden={metrics.scale === 0}>
+        <iframe
+          className="preview-frame preview-frame-scaled"
+          sandbox="allow-scripts"
+          srcDoc={preview.previewHtml}
+          style={frameStyle}
+          title="最终 HTML 预览"
+        />
+      </div>
+    </div>
+  )
+}
+
+function getMeasuredPreviewWidth(shell: HTMLDivElement): number {
+  const measuredElements = [shell, shell.parentElement].filter(Boolean) as HTMLElement[]
+
+  for (const element of measuredElements) {
+    const rect = element.getBoundingClientRect()
+    const horizontalPadding = getHorizontalPadding(element)
+    const contentWidth = rect.width - horizontalPadding
+    if (contentWidth > 0) {
+      return contentWidth
+    }
+  }
+
+  return 0
+}
+
+function getHorizontalPadding(element: HTMLElement): number {
+  const style = window.getComputedStyle(element)
+  return parseFloat(style.paddingLeft || '0') + parseFloat(style.paddingRight || '0')
 }
 
 interface PathBlockProps {

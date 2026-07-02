@@ -805,6 +805,23 @@ button:disabled {
   background: #ffffff;
 }
 
+.preview-html-fit-shell {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  justify-content: center;
+}
+
+.preview-html-stage {
+  position: relative;
+}
+
+.preview-frame-scaled {
+  position: absolute;
+  inset: 0 auto auto 0;
+  transform-origin: top left;
+}
+
 .preview-path-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
