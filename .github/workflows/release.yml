@@ -1,0 +1,128 @@
+name: 发布多平台安装包
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的标签，例如 v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CI: "true"
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+jobs:
+  prepare-release:
+    name: 准备 Release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release-tag.outputs.tag }}
+    steps:
+      - name: 计算发布标签
+        id: release-tag
+        shell: bash
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: 创建或复用 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        shell: bash
+        run: |
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} 已存在，将复用并覆盖同名产物。"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "ScreenCoderDesktop ${RELEASE_TAG}" \
+              --notes "ScreenCoderDesktop ${RELEASE_TAG} 多平台安装包。包含 Windows、macOS 和 Linux 构建产物。" \
+              --latest
+          fi
+
+  build:
+    name: 构建 ${{ matrix.label }}
+    needs: prepare-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows
+            os: windows-latest
+            script: dist:win
+          - label: macOS
+            os: macos-latest
+            script: dist:mac
+          - label: Linux
+            os: ubuntu-latest
+            script: dist:linux
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装 Linux 打包依赖
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools rpm
+
+      - name: 安装项目依赖
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建安装包
+        shell: bash
+        run: pnpm --filter @screencoder/desktop ${{ matrix.script }}
+
+      - name: 上传 Release 产物
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+        shell: bash
+        run: |
+          ARTIFACT_LIST="$(mktemp)"
+          find apps/desktop/release -maxdepth 1 -type f \( \
+              -name "*.exe" -o \
+              -name "*.zip" -o \
+              -name "*.dmg" -o \
+              -name "*.AppImage" -o \
+              -name "*.deb" -o \
+              -name "*.tar.gz" -o \
+              -name "latest*.yml" -o \
+              -name "*.blockmap" \
+            \) -print > "${ARTIFACT_LIST}"
+
+          if [ ! -s "${ARTIFACT_LIST}" ]; then
+            echo "没有找到可上传的打包产物。"
+            exit 1
+          fi
+
+          printf "准备上传以下产物：\n"
+          cat "${ARTIFACT_LIST}"
+
+          while IFS= read -r artifact; do
+            gh release upload "${RELEASE_TAG}" "${artifact}" --repo "${GITHUB_REPOSITORY}" --clobber
+          done < "${ARTIFACT_LIST}"

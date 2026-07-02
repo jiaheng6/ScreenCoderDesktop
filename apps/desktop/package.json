@@ -3,13 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "description": "ScreenCoder 桌面端截图转代码工具",
-  "author": "ScreenCoderDesktop contributors",
+  "homepage": "https://github.com/jiaheng6/ScreenCoderDesktop#readme",
+  "author": {
+    "name": "ScreenCoderDesktop contributors",
+    "email": "jiaheng6@users.noreply.github.com"
+  },
   "type": "module",
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "dist": "pnpm build && electron-builder",
+    "dist:win": "pnpm build && electron-builder --win --x64 --publish never",
+    "dist:mac": "pnpm build && electron-builder --mac --x64 --arm64 --publish never",
+    "dist:linux": "pnpm build && electron-builder --linux --x64 --publish never",
     "dist:dir": "pnpm build && electron-builder --dir",
     "preview": "electron-vite preview",
     "test": "vitest run",
@@ -18,6 +25,8 @@
   "build": {
     "appId": "com.screencoder.desktop",
     "productName": "ScreenCoderDesktop",
+    "executableName": "ScreenCoderDesktop",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release"
     },
@@ -56,7 +65,65 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "category": "Development",
+      "maintainer": "ScreenCoderDesktop contributors <jiaheng6@users.noreply.github.com>",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "tar.gz",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     }
   },

@@ -155,6 +155,23 @@ pnpm build
 pnpm python:test
 ```
 
+## 发布多平台安装包
+
+本仓库使用 GitHub Actions 构建 Release 产物。推送 `v*` 标签后，工作流会在 Windows、macOS、Linux runner 上分别执行：
+
+- Windows：`pnpm --filter @screencoder/desktop dist:win`
+- macOS：`pnpm --filter @screencoder/desktop dist:mac`
+- Linux：`pnpm --filter @screencoder/desktop dist:linux`
+
+发布流程示例：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+工作流会创建或复用同名 GitHub Release，并上传 `.exe`、`.zip`、`.dmg`、`.AppImage`、`.deb`、`.tar.gz` 等安装包。macOS 产物由 macOS runner 构建；在 Windows 本机直接交叉构建 macOS 安装包并不可靠。
+
 ## 运行相关环境变量
 
 - `SCREENCODER_CORE_DIR`：指定外部 ScreenCoder core 目录。
