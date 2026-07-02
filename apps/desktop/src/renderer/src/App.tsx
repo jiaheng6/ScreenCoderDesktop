@@ -171,6 +171,32 @@ function App(): JSX.Element {
     ])
   }, [showImagePreview])
 
+  const handleDeleteJobs = useCallback(
+    async (jobIds: string[]): Promise<void> => {
+      if (jobIds.length === 0) {
+        return
+      }
+
+      try {
+        const deletedJobIds = new Set(jobIds)
+        const result = await window.screencoder.deleteJobs(jobIds)
+        setJobs((currentJobs) => currentJobs.filter((job) => !deletedJobIds.has(job.id)))
+
+        if (activeJobId && deletedJobIds.has(activeJobId)) {
+          setActiveJobId(null)
+          setPreviewContent({ type: 'empty' })
+        }
+
+        appendLog(`已删除 ${result.deletedCount} 个历史任务`)
+        await loadJobs()
+      } catch (error) {
+        appendLog(`删除历史任务失败：${getErrorMessage(error)}`)
+        throw error
+      }
+    },
+    [activeJobId, appendLog, loadJobs]
+  )
+
   const selectedFileName = selectedPath ? selectedPath.split(/[\\/]/).pop() : null
 
   return (
@@ -181,6 +207,7 @@ function App(): JSX.Element {
         errorMessage={historyError}
         onRefresh={loadJobs}
         onOpenJob={(job) => void openJobPreview(job)}
+        onDeleteJobs={handleDeleteJobs}
       />
 
       <section className="control-column" aria-label="任务控制">

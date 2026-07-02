@@ -100,6 +100,7 @@ declare global {
       createJobFromFile: (input: ScreencoderCreateJobInput) => Promise<ScreencoderJobRecord>
       runJob: (jobId: string) => Promise<ScreencoderJobRecord>
       readJobPreview: (jobId: string) => Promise<ScreencoderJobPreview>
+      deleteJobs: (jobIds: string[]) => Promise<{ deletedCount: number }>
       onJobEvent: (callback: (payload: ScreencoderJobEventPayload) => void) => () => void
       listProviders: () => Promise<ScreencoderModelProviderRecord[]>
       saveProvider: (

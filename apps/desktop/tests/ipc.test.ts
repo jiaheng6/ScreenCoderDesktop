@@ -38,6 +38,7 @@ function createFakeJobStore(): {
   createJob: (input: CreateJobInput) => JobRecord
   getJob: (id: string) => JobRecord | undefined
   updateStatus: (id: string, status: JobRecord['status']) => void
+  deleteJobs: (ids: string[]) => number
 } {
   const records: JobRecord[] = []
   const createdInputs: CreateJobInput[] = []
@@ -68,6 +69,17 @@ function createFakeJobStore(): {
         record.status = status
         record.updatedAt = '2026-07-01T00:00:01.000Z'
       }
+    },
+    deleteJobs: (ids) => {
+      const idSet = new Set(ids)
+      const originalCount = records.length
+      for (let index = records.length - 1; index >= 0; index -= 1) {
+        if (idSet.has(records[index].id)) {
+          records.splice(index, 1)
+        }
+      }
+
+      return originalCount - records.length
     }
   }
 }
@@ -80,6 +92,7 @@ type FakeIpcEvent = {
 
 type RunJobHandler = (event: FakeIpcEvent, jobId: string) => Promise<JobRecord>
 type ReadJobPreviewHandler = (jobId: string) => JobPreview
+type DeleteJobsHandler = (jobIds: string[]) => { deletedCount: number }
 type ReadImagePreviewHandler = (inputPath: string) => {
   path: string
   dataUrl: string
@@ -101,6 +114,10 @@ function getReadJobPreviewHandler(
   handlers: ReturnType<typeof createIpcHandlers>
 ): ReadJobPreviewHandler {
   return handlers['jobs:read-preview' as keyof typeof handlers] as unknown as ReadJobPreviewHandler
+}
+
+function getDeleteJobsHandler(handlers: ReturnType<typeof createIpcHandlers>): DeleteJobsHandler {
+  return handlers['jobs:delete' as keyof typeof handlers] as unknown as DeleteJobsHandler
 }
 
 function getReadImagePreviewHandler(
@@ -702,6 +719,40 @@ describe('desktop IPC 白名单 API', () => {
     await expect(getRunJobHandler(handlers)(createFakeIpcEvent([]), 'missing-job')).rejects.toThrow(
       '任务不存在'
     )
+  })
+
+  it('批量删除任务时会删除记录并清理任务输出目录', () => {
+    const { directory, cleanup } = createTempWorkspace('screencoder-delete-jobs-')
+    const workspaceDir = join(directory, 'workspace')
+    const outputDir = join(workspaceDir, 'jobs', 'job-1')
+    const jobStore = createFakeJobStore()
+
+    mkdirSync(outputDir, { recursive: true })
+    writeFileSync(join(outputDir, 'final.html'), '<main>页面</main>', 'utf8')
+    const job = jobStore.createJob({
+      inputPath: join(outputDir, 'input.png'),
+      outputDir,
+      modelConfigId: 'model-1',
+      provider: 'mock-provider',
+      model: 'mock-model',
+      targetFramework: 'html',
+      pageKind: 'web'
+    })
+
+    try {
+      const handlers = createIpcHandlers({
+        jobStore,
+        modelProfileStore: createFakeModelProfileStore(),
+        workspaceDir,
+        showOpenDialog: async () => ({ canceled: true, filePaths: [] })
+      })
+
+      expect(getDeleteJobsHandler(handlers)([job.id])).toEqual({ deletedCount: 1 })
+      expect(jobStore.listJobs()).toEqual([])
+      expect(existsSync(outputDir)).toBe(false)
+    } finally {
+      cleanup()
+    }
   })
 
   it('读取任务预览时会返回 final.html 和目标框架源码产物', () => {

@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('screencoder', {
   createJobFromFile: (input: Record<string, unknown>) => ipcRenderer.invoke('jobs:create-from-file', input),
   runJob: (jobId: string) => ipcRenderer.invoke('jobs:run', jobId),
   readJobPreview: (jobId: string) => ipcRenderer.invoke('jobs:read-preview', jobId),
+  deleteJobs: (jobIds: string[]) => ipcRenderer.invoke('jobs:delete', jobIds),
   onJobEvent: (callback: (payload: unknown) => void) => {
     const listener = (_event: IpcRendererEvent, payload: unknown): void => {
       callback(payload)

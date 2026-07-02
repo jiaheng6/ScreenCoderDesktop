@@ -1,6 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync
+} from 'node:fs'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { runWorker as defaultRunWorker, type RunWorkerInput, type WorkerEvent } from './jobs/job-runner'
@@ -25,6 +33,7 @@ export const IPC_CHANNELS = {
   createJobFromFile: 'jobs:create-from-file',
   runJob: 'jobs:run',
   readJobPreview: 'jobs:read-preview',
+  deleteJobs: 'jobs:delete',
   listProviders: 'providers:list',
   saveProvider: 'providers:save',
   listModels: 'models:list',
@@ -84,7 +93,7 @@ interface ImageDimensions {
 }
 
 interface CreateIpcHandlersInput {
-  jobStore: Pick<JobStore, 'createJob' | 'listJobs' | 'getJob' | 'updateStatus'>
+  jobStore: Pick<JobStore, 'createJob' | 'listJobs' | 'getJob' | 'updateStatus' | 'deleteJobs'>
   modelProfileStore: Pick<
     ModelProfileStore,
     'listProviders' | 'saveProvider' | 'listModels' | 'saveModel' | 'getRunnableModel'
@@ -106,6 +115,7 @@ type IpcHandlers = {
   [IPC_CHANNELS.createJobFromFile]: (input: CreateJobRequest) => JobRecord
   [IPC_CHANNELS.runJob]: (event: IpcInvokeEventLike, jobId: string) => Promise<JobRecord>
   [IPC_CHANNELS.readJobPreview]: (jobId: string) => JobPreview
+  [IPC_CHANNELS.deleteJobs]: (jobIds: string[]) => { deletedCount: number }
   [IPC_CHANNELS.listProviders]: () => ModelProviderRecord[]
   [IPC_CHANNELS.saveProvider]: (input: ModelProviderInput) => ModelProviderRecord
   [IPC_CHANNELS.listModels]: () => ModelConfigRecord[]
@@ -214,6 +224,20 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
 
       return readJobPreview(job)
     },
+    [IPC_CHANNELS.deleteJobs](jobIds: string[]) {
+      const normalizedJobIds = validateJobIds(jobIds)
+      const jobsToDelete = normalizedJobIds
+        .map((jobId) => input.jobStore.getJob(jobId))
+        .filter((job): job is JobRecord => Boolean(job))
+      const outputDirectories = collectSafeJobOutputDirectories(input.workspaceDir, jobsToDelete)
+      const deletedCount = input.jobStore.deleteJobs(normalizedJobIds)
+
+      for (const outputDirectory of outputDirectories) {
+        rmSync(outputDirectory, { recursive: true, force: true })
+      }
+
+      return { deletedCount }
+    },
     [IPC_CHANNELS.listProviders]() {
       return input.modelProfileStore.listProviders()
     },
@@ -250,6 +274,9 @@ export function registerIpcHandlers(input: CreateIpcHandlersInput & { ipcMain: I
   )
   input.ipcMain.handle(IPC_CHANNELS.readJobPreview, (_event, jobId) =>
     handlers[IPC_CHANNELS.readJobPreview](validateJobId(jobId))
+  )
+  input.ipcMain.handle(IPC_CHANNELS.deleteJobs, (_event, jobIds) =>
+    handlers[IPC_CHANNELS.deleteJobs](validateJobIds(jobIds))
   )
   input.ipcMain.handle(IPC_CHANNELS.listProviders, () => handlers[IPC_CHANNELS.listProviders]())
   input.ipcMain.handle(IPC_CHANNELS.saveProvider, (_event, providerInput) =>
@@ -386,6 +413,18 @@ function validateJobId(value: unknown): string {
   return validateNonEmptyString(value, '任务 ID')
 }
 
+function validateJobIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error('任务 ID 列表必须是数组')
+  }
+
+  if (value.length > 500) {
+    throw new Error('一次最多删除 500 个任务')
+  }
+
+  return Array.from(new Set(value.map((item) => validateJobId(item))))
+}
+
 function validateModelProviderId(value: unknown): string {
   return validateNonEmptyString(value, '提供商 ID')
 }
@@ -439,6 +478,43 @@ function readJobPreview(job: JobRecord): JobPreview {
     sourcePath: sourceFile?.path ?? null,
     source: sourceFile?.content ?? null
   }
+}
+
+function collectSafeJobOutputDirectories(workspaceDir: string, jobs: JobRecord[]): string[] {
+  if (jobs.length === 0) {
+    return []
+  }
+
+  mkdirSync(workspaceDir, { recursive: true })
+  const workspaceRoot = realpathSync(workspaceDir)
+  const jobsRoot = resolve(workspaceRoot, 'jobs')
+  const directories = new Set<string>()
+
+  for (const job of jobs) {
+    const outputDirectory = resolveSafeJobOutputDirectory(jobsRoot, job.outputDir)
+    if (outputDirectory) {
+      directories.add(outputDirectory)
+    }
+  }
+
+  return Array.from(directories)
+}
+
+function resolveSafeJobOutputDirectory(jobsRoot: string, outputDir: string): string | null {
+  if (!existsSync(outputDir)) {
+    return null
+  }
+
+  const realOutputDir = realpathSync(outputDir)
+  if (!isPathInsideDirectory(realOutputDir, jobsRoot)) {
+    return null
+  }
+
+  if (!statSync(realOutputDir).isDirectory()) {
+    return null
+  }
+
+  return realOutputDir
 }
 
 function getSourceFileName(targetFramework: JobRecord['targetFramework']): string | null {

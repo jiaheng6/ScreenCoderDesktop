@@ -60,6 +60,31 @@ SCREENCODER_SCRIPTS = [
 
 DEFAULT_HEARTBEAT_SECONDS = 30
 DEFAULT_SCRIPT_TIMEOUT_SECONDS = 900
+MOBILE_VIEWPORT_META = '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+MOBILE_ADAPTER_STYLE = """<style id="screencoder-mobile-adapter">
+html,
+body {
+    max-width: 100vw;
+    overflow-x: hidden;
+}
+
+body {
+    min-width: 0;
+}
+
+body * {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100vw;
+}
+
+img,
+svg,
+canvas,
+video {
+    max-width: 100%;
+}
+</style>"""
 
 
 def run_pipeline(config: RunConfig) -> Iterator[dict[str, object]]:
@@ -100,6 +125,7 @@ def run_pipeline(config: RunConfig) -> Iterator[dict[str, object]]:
 
     source_html = _resolve_screencoder_output(runtime_dir)
     copyfile(source_html, final_html)
+    _postprocess_final_html(final_html, config)
     _copy_output_assets(source_html, output_dir)
     source_artifact = _write_source_artifact(config, final_html.read_text(encoding="utf-8"))
     yield artifact_event("final", final_html)
@@ -158,7 +184,7 @@ def _prepare_runtime_core(
         if item.suffix == ".py" or item.name in ROOT_FILES_TO_COPY:
             copy2(item, destination)
 
-    _patch_runtime_model_config(runtime_dir)
+    _patch_runtime_model_config(runtime_dir, config)
     data_input_dir = runtime_dir / "data" / "input"
     (runtime_dir / "data" / "tmp").mkdir(parents=True, exist_ok=True)
     (runtime_dir / "data" / "output").mkdir(parents=True, exist_ok=True)
@@ -194,28 +220,91 @@ def _ignore_runtime_noise(_directory: str, names: list[str]) -> set[str]:
     }
 
 
-def _patch_runtime_model_config(runtime_dir: Path) -> None:
+def _patch_runtime_model_config(runtime_dir: Path, config: RunConfig) -> None:
     block_parser = runtime_dir / "block_parsor.py"
     if block_parser.exists():
         content = block_parser.read_text(encoding="utf-8")
+        content = _ensure_python_import(content, "os")
         content = content.replace(
             'OpenCodeGo(model="minimax-m3")',
             'OpenCodeGo(model=os.environ.get("SCREENCODER_MODEL", "minimax-m3"), '
             'base_url=os.environ.get("SCREENCODER_BASE_URL", "https://opencode.ai/zen/go/v1"))',
         )
+        if config.page_kind == "mobile":
+            content = _patch_mobile_block_parser_prompt(content)
         block_parser.write_text(content, encoding="utf-8")
 
     html_generator = runtime_dir / "html_generator.py"
     if html_generator.exists():
         content = html_generator.read_text(encoding="utf-8")
-        if "import os" not in content.splitlines()[:5]:
-            content = f"import os\n{content}"
+        content = _ensure_python_import(content, "os")
         content = content.replace(
             'OpenCodeGo(model="minimax-m3")',
             'OpenCodeGo(model=os.environ.get("SCREENCODER_MODEL", "minimax-m3"), '
             'base_url=os.environ.get("SCREENCODER_BASE_URL", "https://opencode.ai/zen/go/v1"))',
         )
+        if config.page_kind == "mobile":
+            content = _patch_mobile_html_generator_prompt(content)
         html_generator.write_text(content, encoding="utf-8")
+
+
+def _ensure_python_import(content: str, module_name: str) -> str:
+    import_line = f"import {module_name}"
+    if import_line in content.splitlines()[:10]:
+        return content
+
+    return f"{import_line}\n{content}"
+
+
+def _patch_mobile_block_parser_prompt(content: str) -> str:
+    marker = "SCREENCODER_DESKTOP_MOBILE_BLOCK_PROMPT_PATCH"
+    if marker in content or "PROMPT_MERGE" not in content:
+        return content
+
+    patch = f'''
+# {marker}
+if os.environ.get("SCREENCODER_PAGE_KIND") == "mobile":
+    PROMPT_MERGE += """
+
+移动端截图识别补充要求：
+1. 当前输入是手机页面截图，请按手机视口理解布局，不要套用桌面侧边栏结构。
+2. 可将顶部栏、功能入口区、内容列表、底部导航分别映射到 header、navigation、main content、sidebar 这些既有标签。
+3. 边界框必须覆盖真实可见内容，避免把手机页面右侧空白误认为内容区域。
+"""
+'''
+    anchor = 'BBOX_TAG_START = "<bbox>"'
+    if anchor in content:
+        return content.replace(anchor, f"{patch}\n{anchor}", 1)
+
+    return f"{content}\n{patch}"
+
+
+def _patch_mobile_html_generator_prompt(content: str) -> str:
+    marker = "SCREENCODER_DESKTOP_MOBILE_PROMPT_PATCH"
+    if marker in content or "PROMPT_DICT" not in content:
+        return content
+
+    patch = f'''
+# {marker}
+MOBILE_GENERATION_REQUIREMENT = """
+移动端页面生成要求：
+1. 当前目标是移动端截图，请使用移动端优先布局，不要生成桌面侧边栏或桌面宽卡片。
+2. 根容器和主要区块必须适配 360-430px 宽度 viewport，优先使用 w-full、max-w-full、flex-col、grid-cols-1 等 Tailwind 类。
+3. 避免使用 w-64、w-[900px]、min-w-* 等会导致横向溢出的固定桌面宽度；必要时使用 max-w-full、overflow-hidden 和 flex-wrap。
+4. 顶部栏、快捷入口、内容列表和底部导航应按手机截图的垂直流式结构还原。
+"""
+
+if os.environ.get("SCREENCODER_PAGE_KIND") == "mobile":
+    PROMPT_DICT = {{
+        name: f"{{prompt}}\\n\\n{{MOBILE_GENERATION_REQUIREMENT}}"
+        for name, prompt in PROMPT_DICT.items()
+    }}
+'''
+    anchor = "# Support refining the generated code."
+    if anchor in content:
+        return content.replace(anchor, f"{patch}\n{anchor}", 1)
+
+    return f"{content}\n{patch}"
 
 
 def _run_core_process(runtime_dir: Path, config: RunConfig) -> Iterator[dict[str, object]]:
@@ -326,6 +415,7 @@ def _create_core_env(config: RunConfig) -> dict[str, str]:
         "SCREENCODER_PROVIDER": config.provider,
         "SCREENCODER_MODEL": config.model,
         "SCREENCODER_BASE_URL": config.base_url,
+        "SCREENCODER_PAGE_KIND": config.page_kind,
         "PYTHONIOENCODING": "utf-8",
         "PYTHONUNBUFFERED": "1",
     }
@@ -399,6 +489,27 @@ def _copy_output_assets(source_html: Path, output_dir: Path) -> None:
             copytree(item, destination)
         elif item.is_file():
             copy2(item, destination)
+
+
+def _postprocess_final_html(final_html: Path, config: RunConfig) -> None:
+    if config.page_kind != "mobile":
+        return
+
+    html = final_html.read_text(encoding="utf-8")
+    html = _ensure_html_head_snippet(html, MOBILE_VIEWPORT_META, "name=\"viewport\"")
+    html = _ensure_html_head_snippet(html, MOBILE_ADAPTER_STYLE, "screencoder-mobile-adapter")
+    final_html.write_text(html, encoding="utf-8")
+
+
+def _ensure_html_head_snippet(html: str, snippet: str, existing_marker: str) -> str:
+    if existing_marker.lower() in html.lower():
+        return html
+
+    head_end_index = html.lower().find("</head>")
+    if head_end_index >= 0:
+        return f"{html[:head_end_index]}    {snippet}\n{html[head_end_index:]}"
+
+    return f"{snippet}\n{html}"
 
 
 def _write_source_artifact(config: RunConfig, html: str) -> Path | None:

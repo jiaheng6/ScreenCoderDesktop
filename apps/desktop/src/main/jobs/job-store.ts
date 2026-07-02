@@ -134,6 +134,20 @@ export class JobStore {
     return rows.map(mapJobRow)
   }
 
+  deleteJobs(ids: string[]): number {
+    const uniqueIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)))
+    if (uniqueIds.length === 0) {
+      return 0
+    }
+
+    const placeholders = uniqueIds.map(() => '?').join(', ')
+    const result = this.database
+      .prepare(`DELETE FROM jobs WHERE id IN (${placeholders})`)
+      .run(...uniqueIds) as unknown as { changes?: number }
+
+    return result.changes ?? 0
+  }
+
   close(): void {
     this.database.close()
   }

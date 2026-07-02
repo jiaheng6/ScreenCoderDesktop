@@ -62,6 +62,25 @@ describe('JobStore', () => {
     }
   })
 
+  it('可以按 ID 批量删除任务', () => {
+    const { databasePath, cleanup } = createTempDatabasePath()
+    const store = new JobStore(databasePath)
+
+    try {
+      const firstJob = store.createJob(createJobInput({ outputDir: 'C:\\output\\first' }))
+      const secondJob = store.createJob(createJobInput({ outputDir: 'C:\\output\\second' }))
+      const deletedCount = store.deleteJobs([firstJob.id, 'missing-job'])
+
+      expect(deletedCount).toBe(1)
+      expect(store.getJob(firstJob.id)).toBeUndefined()
+      expect(store.getJob(secondJob.id)).toEqual(secondJob)
+      expect(store.listJobs()).toEqual([secondJob])
+    } finally {
+      store.close()
+      cleanup()
+    }
+  })
+
   it('会拒绝不符合 Worker 契约的页面类型', () => {
     const { databasePath, cleanup } = createTempDatabasePath()
     const store = new JobStore(databasePath)
