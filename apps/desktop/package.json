@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "ScreenCoder 桌面端截图转代码工具",
-  "author": "ScreenCoderDesktop contributors",
+  "homepage": "https://github.com/jiaheng6/ScreenCoderDesktop#readme",
+  "author": {
+    "name": "ScreenCoderDesktop contributors",
+    "email": "jiaheng6@users.noreply.github.com"
+  },
   "type": "module",
   "main": "dist/main/index.js",
   "scripts": {
@@ -100,6 +104,7 @@
     },
     "linux": {
       "category": "Development",
+      "maintainer": "ScreenCoderDesktop contributors <jiaheng6@users.noreply.github.com>",
       "target": [
         {
           "target": "AppImage",
