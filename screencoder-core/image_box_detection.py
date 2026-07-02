@@ -122,61 +122,95 @@ def draw_bboxes_on_image(img, region_bboxes, placeholder_bboxes):
     return boxed
 
 
+def scale_bboxes_to_image(
+    region_bboxes,
+    placeholder_bboxes,
+    image_width: int,
+    image_height: int,
+    viewport_width: int,
+    viewport_height: int,
+    layout_width: float,
+    layout_height: float,
+):
+    """将浏览器 viewport 坐标转换到原始截图坐标。"""
+    scale_x = image_width / viewport_width if viewport_width > 0 else 1
+    scale_y = image_height / viewport_height if viewport_height > 0 else 1
+
+    if layout_width > 0 and abs(layout_width - viewport_width) > max(8, viewport_width * 0.02):
+        print(
+            "[*] 检测到 HTML 文档宽度与截图 viewport 不一致，"
+            f"layout_width={layout_width:.2f}, viewport_width={viewport_width}。"
+            "坐标将按 viewport 换算，避免水平溢出压缩标注。"
+        )
+    if layout_height > 0 and abs(layout_height - viewport_height) > max(8, viewport_height * 0.02):
+        print(
+            "[*] 检测到 HTML 文档高度与截图 viewport 不一致，"
+            f"layout_height={layout_height:.2f}, viewport_height={viewport_height}。"
+            "坐标将按 viewport 换算。"
+        )
+
+    def scale_box(b):
+        return {
+            **b,
+            "x": int(b["x"] * scale_x),
+            "y": int(b["y"] * scale_y),
+            "w": int(b["w"] * scale_x),
+            "h": int(b["h"] * scale_y),
+        }
+
+    return [scale_box(b) for b in region_bboxes], [scale_box(b) for b in placeholder_bboxes]
+
+
 def main(args):
-    # Read original screenshot
+    # 读取原始截图。
     img = cv2.imread(str(args.screenshot))
     if img is None:
-        sys.exit(f"Error: Cannot read image {args.screenshot}")
+        sys.exit(f"错误：无法读取图片 {args.screenshot}")
     if img.std() < 5:
-        print("Warning: The screenshot is almost pure color, it may not be the original screenshot with real thumbnails.")
+        print("警告：截图几乎是纯色，可能不是包含真实缩略图的原始截图。")
 
     H, W = img.shape[:2]
 
-    # Parse HTML → Get bboxes
+    # 解析 HTML 并读取边界框。
     region_bboxes, placeholder_bboxes, layout_width, layout_height = asyncio.run(
         extract_bboxes_from_html(args.html, W, H)
     )
     if not placeholder_bboxes:
-        sys.exit("Error: No gray placeholder blocks found!")
+        sys.exit("错误：未找到灰色占位图块。")
 
-    # Calculate separate scale factors for X and Y to handle aspect ratio differences
-    scale_x = W / layout_width if layout_width > 0 else 1
-    scale_y = H / layout_height if layout_height > 0 else 1
+    viewport_width = W
+    viewport_height = H
+    scaled_regions, scaled_placeholders = scale_bboxes_to_image(
+        region_bboxes,
+        placeholder_bboxes,
+        image_width=W,
+        image_height=H,
+        viewport_width=viewport_width,
+        viewport_height=viewport_height,
+        layout_width=layout_width,
+        layout_height=layout_height,
+    )
+
+    # 计算诊断用缩放比例。
+    scale_x = W / viewport_width if viewport_width > 0 else 1
+    scale_y = H / viewport_height if viewport_height > 0 else 1
 
     if abs(scale_x - scale_y) > 0.05:
-        print(f"[*] Detected different X/Y scales. X: {scale_x:.2f}, Y: {scale_y:.2f}")
+        print(f"[*] 检测到不同的 X/Y 缩放比例。X: {scale_x:.2f}, Y: {scale_y:.2f}")
     elif abs(scale_x - 1.0) > 0.05:
-        print(f"[*] Detected uniform scale: {scale_x:.2f}")
+        print(f"[*] 检测到统一缩放比例：{scale_x:.2f}")
 
-
-    # Scale all bboxes to the original image coordinate system
-    scaled_regions = []
-    for b in region_bboxes:
-        scaled_regions.append({
-            **b,
-            "x": int(b['x'] * scale_x), "y": int(b['y'] * scale_y),
-            "w": int(b['w'] * scale_x), "h": int(b['h'] * scale_y)
-        })
-
-    scaled_placeholders = []
-    for b in placeholder_bboxes:
-        scaled_placeholders.append({
-            **b,
-            "x": int(b['x'] * scale_x), "y": int(b['y'] * scale_y),
-            "w": int(b['w'] * scale_x), "h": int(b['h'] * scale_y)
-        })
-
-    # Draw boxes using the now-scaled data
+    # 使用换算后的数据绘制边界框。
     overlay = draw_bboxes_on_image(img, scaled_regions, scaled_placeholders)
 
-    # Save debug image
+    # 保存调试图。
     out_png = args.out / "debug_gray_bboxes_test1.png"
     out_png.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out_png), overlay)
-    print(f"Success: BBox overlay saved to {out_png}")
+    print(f"成功：边界框标注图已保存到 {out_png}")
 
 
-    # Convert absolute pixel coordinates to proportions for the final JSON output
+    # 将绝对像素坐标转换为最终 JSON 使用的比例坐标。
     proportional_regions = []
     for b in scaled_regions:
         proportional_regions.append({

@@ -221,17 +221,17 @@ def generate_code_parallel(bbox_tree, img_path, bot):
 
     return code_dict
 
-# Generate HTML from the bounding box tree
+# 根据边界框树生成 HTML
 def generate_html(bbox_tree, output_file="output.html", img_path="data/test1.png"):
     """
-    Generates an HTML file with nested containers based on the bounding box tree.
+    根据边界框树生成带嵌套容器的 HTML 文件。
 
-    :param bbox_tree: Dictionary representing the bounding box tree.
-    :param output_file: The name of the output HTML file.
+    :param bbox_tree: 表示边界框树的字典。
+    :param output_file: 输出 HTML 文件名。
     """
-    # HTML and CSS templates
-    # the container class is used to create grid and position the boxes
-    # include the tailwind css in the head tag
+    # HTML 和 CSS 模板。
+    # 使用私有布局类定位边界框，避免与 Tailwind 的工具类重名。
+    # 在 head 中加载 Tailwind CSS。
     html_template_start = """
     <!DOCTYPE html>
     <html lang="en">
@@ -245,7 +245,8 @@ def generate_html(bbox_tree, output_file="output.html", img_path="data/test1.png
                 width: 100%;
                 height: 100%;
             }
-            .container {
+            .screencoder-layout-root,
+            .screencoder-layout-container {
                 position: relative;
                 width: 100%;
                 height: 100%;
@@ -256,7 +257,7 @@ def generate_html(bbox_tree, output_file="output.html", img_path="data/test1.png
                 box-sizing: border-box;
                 overflow: hidden;
             }
-            .box > .container {
+            .box > .screencoder-layout-container {
                 display: grid;
                 width: 100%;
                 height: 100%;
@@ -271,7 +272,7 @@ def generate_html(bbox_tree, output_file="output.html", img_path="data/test1.png
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body>
-        <div class="container">
+        <div class="screencoder-layout-root">
     """
 
     html_template_end = """
@@ -280,29 +281,29 @@ def generate_html(bbox_tree, output_file="output.html", img_path="data/test1.png
     </html>
     """
 
-    # Function to recursively generate HTML
+    # 递归生成 HTML。
     def process_bbox(node, parent_width, parent_height, parent_left, parent_top, img):
         bbox = node['bbox']
         children = node.get('children', [])
         id = node['id']
 
-        # Calculate relative positions and sizes
+        # 计算相对位置和尺寸。
         left = (bbox[0] - parent_left) / parent_width * 100
         top = (bbox[1] - parent_top) / parent_height * 100
         width = (bbox[2] - bbox[0]) / parent_width * 100
         height = (bbox[3] - bbox[1]) / parent_height * 100
 
-        # Start the box div
+        # 开始生成区域 div。
         html = f'''
             <div id="{id}" class="box" style="left: {left}%; top: {top}%; width: {width}%; height: {height}%;">
         '''
 
         if children:
-            # If there are children, add a nested container
+            # 如果存在子区域，使用私有容器类，避免与 Tailwind 的 container 工具类冲突。
             html += '''
-                <div class="container">
+                <div class="screencoder-layout-container">
             '''
-            # Get the current box's width and height in pixels for child calculations
+            # 获取当前区域的像素宽高，用于子区域计算。
             current_width = bbox[2] - bbox[0]
             current_height = bbox[3] - bbox[1]
             for child in children:
@@ -311,7 +312,7 @@ def generate_html(bbox_tree, output_file="output.html", img_path="data/test1.png
                 </div>
             '''
 
-        # Close the box div
+        # 关闭区域 div。
         html += '''
             </div>
         '''
