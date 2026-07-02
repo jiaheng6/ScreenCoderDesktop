@@ -84,11 +84,18 @@ workspace/jobs/{jobId}/
 
 ### 5.2 模型配置
 
-模型配置应支持：
+模型配置分为“提供商”和“模型”两类。
+
+提供商配置应支持：
 
 - 提供商名称。
 - Base URL。
 - API Key。
+
+模型配置应支持：
+
+- 模型名称。
+- 所属提供商。
 - 模型名。
 - 请求超时时间。
 - 最大输出 token。
@@ -106,16 +113,21 @@ workspace/jobs/{jobId}/
 
 ```json
 {
-  "provider": "opencode-go",
-  "baseUrl": "https://opencode.ai/zen/go/v1",
-  "model": "minimax-m3",
-  "apiKeyRef": "secure-store:key-id",
-  "maxTokens": 4096,
-  "timeoutSeconds": 300
+  "provider": {
+    "name": "OpenCode Go",
+    "provider": "opencode-go",
+    "baseUrl": "https://opencode.ai/zen/go/v1",
+    "hasApiKey": true
+  },
+  "model": {
+    "name": "Minimax M3",
+    "providerId": "provider-id",
+    "model": "minimax-m3"
+  }
 }
 ```
 
-API Key 不应明文保存在项目文件中。桌面端可以优先使用系统安全存储；开发阶段可临时使用本地 `.env`，但不得提交。
+API Key 不应明文保存在项目文件中。桌面端使用 Electron `safeStorage` 加密保存，运行时由主进程注入 Worker 环境变量。
 
 ### 5.3 页面类型策略
 
@@ -139,6 +151,7 @@ python -m screencoder_desktop_worker run \
   --output workspace/jobs/{jobId}/artifacts \
   --provider opencode-go \
   --model minimax-m3 \
+  --base-url https://opencode.ai/zen/go/v1 \
   --target html \
   --page-kind web
 ```
@@ -213,6 +226,7 @@ CREATE TABLE jobs (
   id TEXT PRIMARY KEY,
   input_path TEXT NOT NULL,
   output_dir TEXT NOT NULL,
+  model_config_id TEXT NOT NULL,
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
   target_framework TEXT NOT NULL,
@@ -230,13 +244,21 @@ CREATE TABLE artifacts (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE model_profiles (
+CREATE TABLE model_providers (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   provider TEXT NOT NULL,
-  base_url TEXT,
+  base_url TEXT NOT NULL,
+  api_key_ciphertext TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE model_configs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
   model TEXT NOT NULL,
-  api_key_ref TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

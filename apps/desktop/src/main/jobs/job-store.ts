@@ -1,0 +1,180 @@
+import { randomUUID } from 'node:crypto'
+import { mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
+
+export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed'
+export type PageKind = 'web' | 'mobile' | 'custom'
+export type TargetFramework = 'html' | 'vue2' | 'vue3' | 'react'
+
+export interface CreateJobInput {
+  inputPath: string
+  outputDir: string
+  modelConfigId: string
+  provider: string
+  model: string
+  targetFramework: TargetFramework
+  pageKind: PageKind
+}
+
+export interface JobRecord extends CreateJobInput {
+  id: string
+  status: JobStatus
+  createdAt: string
+  updatedAt: string
+}
+
+interface JobRow {
+  id: string
+  input_path: string
+  output_dir: string
+  model_config_id: string
+  provider: string
+  model: string
+  target_framework: TargetFramework
+  page_kind: PageKind
+  status: JobStatus
+  created_at: string
+  updated_at: string
+}
+
+export class JobStore {
+  private readonly database: DatabaseSync
+
+  constructor(databasePath: string) {
+    mkdirSync(dirname(databasePath), { recursive: true })
+    this.database = new DatabaseSync(databasePath)
+    this.database.exec(`
+      CREATE TABLE IF NOT EXISTS jobs (
+        id TEXT PRIMARY KEY,
+        input_path TEXT NOT NULL,
+        output_dir TEXT NOT NULL,
+        model_config_id TEXT NOT NULL DEFAULT '',
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        target_framework TEXT NOT NULL CHECK (target_framework IN ('html', 'vue2', 'vue3', 'react')),
+        page_kind TEXT NOT NULL CHECK (page_kind IN ('web', 'mobile', 'custom')),
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `)
+    this.ensureJobsColumn('model_config_id', "TEXT NOT NULL DEFAULT ''")
+  }
+
+  createJob(input: CreateJobInput): JobRecord {
+    const now = new Date().toISOString()
+    const record: JobRecord = {
+      ...input,
+      id: randomUUID(),
+      status: 'queued',
+      createdAt: now,
+      updatedAt: now
+    }
+
+    this.database
+      .prepare(
+        `
+          INSERT INTO jobs (
+            id,
+            input_path,
+            output_dir,
+            model_config_id,
+            provider,
+            model,
+            target_framework,
+            page_kind,
+            status,
+            created_at,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `
+      )
+      .run(
+        record.id,
+        record.inputPath,
+        record.outputDir,
+        record.modelConfigId,
+        record.provider,
+        record.model,
+        record.targetFramework,
+        record.pageKind,
+        record.status,
+        record.createdAt,
+        record.updatedAt
+      )
+
+    return record
+  }
+
+  updateStatus(id: string, status: JobStatus): void {
+    this.database
+      .prepare(
+        `
+          UPDATE jobs
+          SET status = ?, updated_at = ?
+          WHERE id = ?
+        `
+      )
+      .run(status, new Date().toISOString(), id)
+  }
+
+  getJob(id: string): JobRecord | undefined {
+    const row = this.database.prepare('SELECT * FROM jobs WHERE id = ?').get(id) as
+      | JobRow
+      | undefined
+
+    return row ? mapJobRow(row) : undefined
+  }
+
+  listJobs(): JobRecord[] {
+    const rows = this.database.prepare('SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC').all() as unknown as JobRow[]
+
+    return rows.map(mapJobRow)
+  }
+
+  deleteJobs(ids: string[]): number {
+    const uniqueIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)))
+    if (uniqueIds.length === 0) {
+      return 0
+    }
+
+    const placeholders = uniqueIds.map(() => '?').join(', ')
+    const result = this.database
+      .prepare(`DELETE FROM jobs WHERE id IN (${placeholders})`)
+      .run(...uniqueIds) as unknown as { changes?: number }
+
+    return result.changes ?? 0
+  }
+
+  close(): void {
+    this.database.close()
+  }
+
+  private ensureJobsColumn(columnName: string, definition: string): void {
+    const rows = this.database.prepare('PRAGMA table_info(jobs)').all() as unknown as Array<{
+      name: string
+    }>
+
+    if (!rows.some((row) => row.name === columnName)) {
+      this.database.exec(`ALTER TABLE jobs ADD COLUMN ${columnName} ${definition}`)
+    }
+  }
+}
+
+function mapJobRow(row: JobRow): JobRecord {
+  return {
+    id: row.id,
+    inputPath: row.input_path,
+    outputDir: row.output_dir,
+    modelConfigId: row.model_config_id,
+    provider: row.provider,
+    model: row.model,
+    targetFramework: row.target_framework,
+    pageKind: row.page_kind,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}

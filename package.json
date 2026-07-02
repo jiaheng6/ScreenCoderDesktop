@@ -1,0 +1,16 @@
+{
+  "name": "screencoder-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "pnpm --filter @screencoder/desktop dev",
+    "build": "pnpm --filter @screencoder/desktop build",
+    "dist": "pnpm --filter @screencoder/desktop dist",
+    "dist:dir": "pnpm --filter @screencoder/desktop dist:dir",
+    "test": "pnpm --filter @screencoder/desktop test",
+    "lint": "pnpm --filter @screencoder/desktop lint",
+    "python:test": "node scripts/run-python-tests.mjs"
+  },
+  "packageManager": "pnpm@9.15.4"
+}
