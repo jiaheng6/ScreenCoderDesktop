@@ -21,6 +21,7 @@
   "build": {
     "appId": "com.screencoder.desktop",
     "productName": "ScreenCoderDesktop",
+    "executableName": "ScreenCoderDesktop",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release"

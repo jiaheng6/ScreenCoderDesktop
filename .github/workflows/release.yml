@@ -103,8 +103,8 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
         shell: bash
         run: |
-          mapfile -t ARTIFACTS < <(
-            find apps/desktop/release -maxdepth 1 -type f \( \
+          ARTIFACT_LIST="$(mktemp)"
+          find apps/desktop/release -maxdepth 1 -type f \( \
               -name "*.exe" -o \
               -name "*.zip" -o \
               -name "*.dmg" -o \
@@ -113,14 +113,16 @@ jobs:
               -name "*.tar.gz" -o \
               -name "*.yml" -o \
               -name "*.blockmap" \
-            \) -print
-          )
+            \) -print > "${ARTIFACT_LIST}"
 
-          if [ "${#ARTIFACTS[@]}" -eq 0 ]; then
+          if [ ! -s "${ARTIFACT_LIST}" ]; then
             echo "没有找到可上传的打包产物。"
             exit 1
           fi
 
           printf "准备上传以下产物：\n"
-          printf "%s\n" "${ARTIFACTS[@]}"
-          gh release upload "${RELEASE_TAG}" "${ARTIFACTS[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
+          cat "${ARTIFACT_LIST}"
+
+          while IFS= read -r artifact; do
+            gh release upload "${RELEASE_TAG}" "${artifact}" --repo "${GITHUB_REPOSITORY}" --clobber
+          done < "${ARTIFACT_LIST}"
