@@ -6,6 +6,7 @@ import type {
   ScreencoderRuntimeEnvironmentStatus,
   ScreencoderTargetFramework
 } from '../global'
+import { isRunPipelineDisabled } from '../runtime-environment-gate'
 
 interface RunPanelProps {
   selectedPath: string | null
@@ -48,6 +49,14 @@ export function RunPanel({
   const [isInstallingEnvironment, setIsInstallingEnvironment] = useState(false)
   const [runtimeStatus, setRuntimeStatus] = useState<ScreencoderRuntimeEnvironmentStatus | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const isPipelineDisabled = isRunPipelineDisabled({
+    selectedPath,
+    hasSelectedModel: Boolean(selectedModel),
+    isRunning,
+    isCheckingEnvironment,
+    isInstallingEnvironment,
+    runtimeStatus
+  })
 
   useEffect(() => {
     void handleCheckEnvironment(false)
@@ -117,7 +126,7 @@ export function RunPanel({
     try {
       const status = await handleCheckEnvironment(false)
       if (!status?.ok) {
-        const errorMessage = status?.message ?? '运行环境不可用，请先检测或安装运行环境。'
+        const errorMessage = status?.message ?? '运行环境不可用，请先安装运行环境。'
         setMessage(errorMessage)
         onRunLog(`运行环境不可用：${errorMessage}`)
         return
@@ -164,9 +173,13 @@ export function RunPanel({
       <section className="runtime-environment-card" aria-label="运行环境">
         <div>
           <span className={runtimeStatus?.ok ? 'runtime-status is-ok' : 'runtime-status'}>
-            {runtimeStatus?.ok ? '运行环境可用' : '运行环境需要检测'}
+            {runtimeStatus?.ok
+              ? '运行环境可用'
+              : isCheckingEnvironment
+                ? '正在检测运行环境'
+                : '运行环境未就绪'}
           </span>
-          <p>{runtimeStatus ? runtimeStatus.message : '首次运行前建议检测 ScreenCoder Python 运行环境。'}</p>
+          <p>{runtimeStatus ? runtimeStatus.message : '正在自动检测 ScreenCoder Python 运行环境。'}</p>
           {runtimeStatus && !runtimeStatus.ok && runtimeStatus.missingDependencies.length > 0 ? (
             <p className="runtime-missing-list">
               缺失：{runtimeStatus.missingDependencies.map((item) => item.moduleName).join('、')}
@@ -177,16 +190,14 @@ export function RunPanel({
           <button
             className="secondary-button"
             type="button"
-            onClick={() => void handleCheckEnvironment(true)}
-            disabled={isCheckingEnvironment || isInstallingEnvironment || isRunning}
-          >
-            {isCheckingEnvironment ? '检测中' : '检测环境'}
-          </button>
-          <button
-            className="secondary-button"
-            type="button"
             onClick={() => void handleInstallEnvironment()}
-            disabled={isInstallingEnvironment || isRunning || runtimeStatus?.canInstall === false}
+            disabled={
+              isCheckingEnvironment ||
+              isInstallingEnvironment ||
+              isRunning ||
+              runtimeStatus?.ok === true ||
+              runtimeStatus?.canInstall === false
+            }
           >
             {isInstallingEnvironment ? '安装中' : '一键安装运行环境'}
           </button>
@@ -229,7 +240,7 @@ export function RunPanel({
         className="create-job-button"
         type="button"
         onClick={handleRunPipeline}
-        disabled={isRunning || isInstallingEnvironment || !selectedPath || !selectedModel}
+        disabled={isPipelineDisabled}
       >
         {isRunning ? '运行中' : '运行流水线'}
       </button>
