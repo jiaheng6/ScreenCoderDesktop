@@ -24,5 +24,7 @@ contextBridge.exposeInMainWorld('screencoder', {
   saveProvider: (input: Record<string, unknown>) => ipcRenderer.invoke('providers:save', input),
   listModels: () => ipcRenderer.invoke('models:list'),
   saveModel: (input: Record<string, unknown>) => ipcRenderer.invoke('models:save', input),
-  testModelConnection: (modelId: string) => ipcRenderer.invoke('models:test-connection', modelId)
+  testModelConnection: (modelId: string) => ipcRenderer.invoke('models:test-connection', modelId),
+  checkRuntimeEnvironment: () => ipcRenderer.invoke('runtime:check-environment'),
+  installRuntimeEnvironment: () => ipcRenderer.invoke('runtime:install-environment')
 })

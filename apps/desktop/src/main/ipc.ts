@@ -25,6 +25,16 @@ import type {
   ModelProviderRecord,
   ModelProfileStore
 } from './models/model-profile-store'
+import {
+  checkRuntimeEnvironment as defaultRuntimeEnvironmentChecker,
+  installRuntimeEnvironment as defaultRuntimeEnvironmentInstaller,
+  resolveManagedPythonExecutable,
+  resolveRuntimeRequirementsPath,
+  type RuntimeEnvironmentCheckInput,
+  type RuntimeEnvironmentInstallInput,
+  type RuntimeEnvironmentInstallResult,
+  type RuntimeEnvironmentStatus
+} from './runtime-environment'
 
 export const IPC_CHANNELS = {
   selectImage: 'dialog:select-image',
@@ -38,7 +48,9 @@ export const IPC_CHANNELS = {
   saveProvider: 'providers:save',
   listModels: 'models:list',
   saveModel: 'models:save',
-  testModelConnection: 'models:test-connection'
+  testModelConnection: 'models:test-connection',
+  checkRuntimeEnvironment: 'runtime:check-environment',
+  installRuntimeEnvironment: 'runtime:install-environment'
 } as const
 
 export const JOB_EVENT_CHANNEL = 'jobs:event'
@@ -107,7 +119,12 @@ interface CreateIpcHandlersInput {
   modelConnectionTester?: ModelConnectionTester
   pythonExecutable?: string
   workerCwd?: string
+  managedPythonDir?: string
   appPath?: string
+  runtimeEnvironmentChecker?: (input: RuntimeEnvironmentCheckInput) => RuntimeEnvironmentStatus
+  runtimeEnvironmentInstaller?: (
+    input: RuntimeEnvironmentInstallInput
+  ) => Promise<RuntimeEnvironmentInstallResult>
 }
 
 type IpcHandlers = {
@@ -123,6 +140,8 @@ type IpcHandlers = {
   [IPC_CHANNELS.listModels]: () => ModelConfigRecord[]
   [IPC_CHANNELS.saveModel]: (input: ModelConfigInput) => ModelConfigRecord
   [IPC_CHANNELS.testModelConnection]: (modelId: string) => Promise<ModelConnectionTestResult>
+  [IPC_CHANNELS.checkRuntimeEnvironment]: () => RuntimeEnvironmentStatus
+  [IPC_CHANNELS.installRuntimeEnvironment]: () => Promise<RuntimeEnvironmentInstallResult>
 }
 
 const allowedImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp'])
@@ -141,8 +160,28 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
   const createJobDirectoryId = input.createJobDirectoryId ?? randomUUID
   const runWorker = input.runWorker ?? defaultRunWorker
   const modelConnectionTester = input.modelConnectionTester ?? defaultModelConnectionTester
-  const pythonExecutable = input.pythonExecutable ?? resolvePythonExecutable(input.appPath)
   const workerCwd = input.workerCwd ?? resolveWorkerCwd(input.appPath)
+  const managedPythonDir = input.managedPythonDir ?? join(dirname(input.workspaceDir), 'runtime', 'python-venv')
+  const runtimeEnvironmentChecker =
+    input.runtimeEnvironmentChecker ?? defaultRuntimeEnvironmentChecker
+  const runtimeEnvironmentInstaller =
+    input.runtimeEnvironmentInstaller ?? defaultRuntimeEnvironmentInstaller
+  const resolveCurrentPythonExecutable = (): string =>
+    input.pythonExecutable ?? resolvePythonExecutable(input.appPath, managedPythonDir)
+  const createRuntimeEnvironmentInput = (): RuntimeEnvironmentCheckInput => ({
+    pythonExecutable: resolveCurrentPythonExecutable(),
+    managedPythonDir,
+    managedPythonExecutable: resolveManagedPythonExecutable(managedPythonDir),
+    workerCwd,
+    requirementsPath: resolveRuntimeRequirementsPath(workerCwd)
+  })
+  const createRuntimeEnvironmentInstallInput = (): RuntimeEnvironmentInstallInput => ({
+    basePythonExecutable: input.pythonExecutable ?? resolvePythonExecutable(input.appPath),
+    managedPythonDir,
+    managedPythonExecutable: resolveManagedPythonExecutable(managedPythonDir),
+    workerCwd,
+    requirementsPath: resolveRuntimeRequirementsPath(workerCwd)
+  })
 
   return {
     async [IPC_CHANNELS.selectImage]() {
@@ -193,7 +232,7 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
       try {
         const runnableModel = input.modelProfileStore.getRunnableModel(job.modelConfigId)
         const exitCode = await runWorker({
-          pythonExecutable,
+          pythonExecutable: resolveCurrentPythonExecutable(),
           workerCwd,
           inputPath: job.inputPath,
           outputDir: job.outputDir,
@@ -256,6 +295,12 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
       const runnableModel = input.modelProfileStore.getRunnableModel(validateModelConfigId(modelId))
 
       return modelConnectionTester(runnableModel)
+    },
+    [IPC_CHANNELS.checkRuntimeEnvironment]() {
+      return runtimeEnvironmentChecker(createRuntimeEnvironmentInput())
+    },
+    [IPC_CHANNELS.installRuntimeEnvironment]() {
+      return runtimeEnvironmentInstaller(createRuntimeEnvironmentInstallInput())
     }
   }
 }
@@ -290,6 +335,12 @@ export function registerIpcHandlers(input: CreateIpcHandlersInput & { ipcMain: I
   )
   input.ipcMain.handle(IPC_CHANNELS.testModelConnection, (_event, modelId) =>
     handlers[IPC_CHANNELS.testModelConnection](validateModelConfigId(modelId))
+  )
+  input.ipcMain.handle(IPC_CHANNELS.checkRuntimeEnvironment, () =>
+    handlers[IPC_CHANNELS.checkRuntimeEnvironment]()
+  )
+  input.ipcMain.handle(IPC_CHANNELS.installRuntimeEnvironment, () =>
+    handlers[IPC_CHANNELS.installRuntimeEnvironment]()
   )
 }
 
@@ -827,10 +878,17 @@ function isPathInsideDirectory(targetPath: string, directoryPath: string): boole
   return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))
 }
 
-export function resolvePythonExecutable(appPath = process.cwd()): string {
+export function resolvePythonExecutable(appPath = process.cwd(), managedPythonDir?: string): string {
   const configuredPython = process.env.SCREENCODER_PYTHON?.trim()
   if (configuredPython) {
     return configuredPython
+  }
+
+  if (managedPythonDir) {
+    const managedPython = resolveManagedPythonExecutable(managedPythonDir)
+    if (existsSync(managedPython)) {
+      return managedPython
+    }
   }
 
   const virtualEnvPython = resolveVirtualEnvPythonExecutable(appPath)
@@ -865,10 +923,7 @@ export function resolvePythonExecutable(appPath = process.cwd()): string {
 
 function resolveVirtualEnvPythonExecutable(appPath: string): string | null {
   const candidateCoreDirs = resolveCandidateCoreDirs(appPath)
-  const executableRelativePath =
-    process.platform === 'win32'
-      ? join('.venv', 'Scripts', 'python.exe')
-      : join('.venv', 'bin', 'python')
+  const executableRelativePath = join('.venv', pythonRuntimeExecutableRelativePath())
 
   for (const coreDir of candidateCoreDirs) {
     const candidate = join(coreDir, executableRelativePath)
@@ -878,6 +933,10 @@ function resolveVirtualEnvPythonExecutable(appPath: string): string | null {
   }
 
   return null
+}
+
+function pythonRuntimeExecutableRelativePath(): string {
+  return process.platform === 'win32' ? join('Scripts', 'python.exe') : join('bin', 'python')
 }
 
 function resolveCandidateCoreDirs(appPath: string): string[] {

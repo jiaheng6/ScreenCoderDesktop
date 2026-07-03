@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
   ScreencoderJobRecord,
   ScreencoderModelConfigRecord,
   ScreencoderPageKind,
+  ScreencoderRuntimeEnvironmentStatus,
   ScreencoderTargetFramework
 } from '../global'
 
@@ -43,7 +44,61 @@ export function RunPanel({
   onRunLog
 }: RunPanelProps): JSX.Element {
   const [isRunning, setIsRunning] = useState(false)
+  const [isCheckingEnvironment, setIsCheckingEnvironment] = useState(false)
+  const [isInstallingEnvironment, setIsInstallingEnvironment] = useState(false)
+  const [runtimeStatus, setRuntimeStatus] = useState<ScreencoderRuntimeEnvironmentStatus | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    void handleCheckEnvironment(false)
+  }, [])
+
+  async function handleCheckEnvironment(shouldLog = true): Promise<ScreencoderRuntimeEnvironmentStatus | null> {
+    setIsCheckingEnvironment(true)
+
+    try {
+      const status = await window.screencoder.checkRuntimeEnvironment()
+      setRuntimeStatus(status)
+      if (shouldLog) {
+        onRunLog(`运行环境检测：${status.message}`)
+      }
+      return status
+    } catch (error) {
+      const errorMessage = getErrorMessage(error)
+      setMessage(errorMessage)
+      onRunLog(`运行环境检测失败：${errorMessage}`)
+      return null
+    } finally {
+      setIsCheckingEnvironment(false)
+    }
+  }
+
+  async function handleInstallEnvironment(): Promise<void> {
+    setIsInstallingEnvironment(true)
+    setMessage(null)
+    onRunLog('开始安装运行环境')
+
+    try {
+      const result = await window.screencoder.installRuntimeEnvironment()
+      onRunLog(result.log)
+
+      if (!result.ok) {
+        const errorMessage = result.error ?? '运行环境安装失败'
+        setMessage(errorMessage)
+        onRunLog(`运行环境安装失败：${errorMessage}`)
+        return
+      }
+
+      setMessage('运行环境安装完成')
+      await handleCheckEnvironment(true)
+    } catch (error) {
+      const errorMessage = getErrorMessage(error)
+      setMessage(errorMessage)
+      onRunLog(`运行环境安装失败：${errorMessage}`)
+    } finally {
+      setIsInstallingEnvironment(false)
+    }
+  }
 
   async function handleRunPipeline(): Promise<void> {
     if (!selectedPath) {
@@ -60,6 +115,14 @@ export function RunPanel({
     setMessage(null)
 
     try {
+      const status = await handleCheckEnvironment(false)
+      if (!status?.ok) {
+        const errorMessage = status?.message ?? '运行环境不可用，请先检测或安装运行环境。'
+        setMessage(errorMessage)
+        onRunLog(`运行环境不可用：${errorMessage}`)
+        return
+      }
+
       const job = await window.screencoder.createJobFromFile({
         inputPath: selectedPath,
         modelConfigId: selectedModel.id,
@@ -98,6 +161,38 @@ export function RunPanel({
         </div>
       </div>
 
+      <section className="runtime-environment-card" aria-label="运行环境">
+        <div>
+          <span className={runtimeStatus?.ok ? 'runtime-status is-ok' : 'runtime-status'}>
+            {runtimeStatus?.ok ? '运行环境可用' : '运行环境需要检测'}
+          </span>
+          <p>{runtimeStatus ? runtimeStatus.message : '首次运行前建议检测 ScreenCoder Python 运行环境。'}</p>
+          {runtimeStatus && !runtimeStatus.ok && runtimeStatus.missingDependencies.length > 0 ? (
+            <p className="runtime-missing-list">
+              缺失：{runtimeStatus.missingDependencies.map((item) => item.moduleName).join('、')}
+            </p>
+          ) : null}
+        </div>
+        <div className="runtime-actions">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => void handleCheckEnvironment(true)}
+            disabled={isCheckingEnvironment || isInstallingEnvironment || isRunning}
+          >
+            {isCheckingEnvironment ? '检测中' : '检测环境'}
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => void handleInstallEnvironment()}
+            disabled={isInstallingEnvironment || isRunning || runtimeStatus?.canInstall === false}
+          >
+            {isInstallingEnvironment ? '安装中' : '一键安装运行环境'}
+          </button>
+        </div>
+      </section>
+
       <div className="control-group target-framework-control">
         <span className="field-label">目标框架</span>
         <div className="segmented-control" role="group" aria-label="目标框架">
@@ -134,7 +229,7 @@ export function RunPanel({
         className="create-job-button"
         type="button"
         onClick={handleRunPipeline}
-        disabled={isRunning || !selectedPath || !selectedModel}
+        disabled={isRunning || isInstallingEnvironment || !selectedPath || !selectedModel}
       >
         {isRunning ? '运行中' : '运行流水线'}
       </button>

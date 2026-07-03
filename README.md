@@ -68,7 +68,7 @@ jobs/{任务目录}/
 
 - Node.js 和 pnpm。
 - Python 3.11 或兼容版本。
-- ScreenCoder Python 依赖。
+- ScreenCoder Python 运行依赖。
 - 可访问的大模型 API。
 
 安装前端依赖：
@@ -77,10 +77,10 @@ jobs/{任务目录}/
 pnpm install
 ```
 
-安装 Python 依赖。可以安装到原 ScreenCoder 项目的虚拟环境，也可以安装到本仓库可被 Worker 识别的 Python 环境：
+开发模式可以手动安装 Python 依赖。桌面端正式使用时，推荐直接在“运行”页点击“检测环境”和“一键安装运行环境”，应用会在用户数据目录创建托管虚拟环境，不会污染系统 Python。
 
 ```powershell
-python -m pip install -r screencoder-core/requirements.txt
+python -m pip install -r python/requirements-runtime.txt
 ```
 
 如果 Playwright 运行环境缺少浏览器，可以安装 Chromium：
@@ -109,9 +109,10 @@ pnpm --filter @screencoder/desktop dev
 Python 解释器选择优先级：
 
 1. `SCREENCODER_PYTHON` 指定的解释器。
-2. `SCREENCODER_CORE_DIR/.venv` 中的虚拟环境。
-3. 仓库相邻 `ScreenCoder/.venv` 中的虚拟环境。
-4. 系统 `py -3`、`python` 或 `python3`。
+2. 应用托管运行环境：`<用户数据目录>/ScreenCoderDesktop/runtime/python-venv`。
+3. `SCREENCODER_CORE_DIR/.venv` 中的虚拟环境。
+4. 仓库相邻 `ScreenCoder/.venv` 中的虚拟环境。
+5. 系统 `py -3`、`python` 或 `python3`。
 
 ## 使用流程
 
@@ -123,10 +124,11 @@ Python 解释器选择优先级：
 3. 点击“测试连接”确认模型配置可用。
 4. 在“截图”页选择或拖入截图。
 5. 在“运行”页选择目标框架和页面类型。
-6. 点击“运行流水线”。
-7. 在“日志”页查看实时阶段输出。
-8. 在右侧“预览对比”查看原图、标注图、生成结果和源码。
-9. 在左侧“历史任务”中打开历史结果，或批量删除任务及其产物目录。
+6. 首次运行前点击“检测环境”。如果缺少依赖，点击“一键安装运行环境”。
+7. 点击“运行流水线”。
+8. 在“日志”页查看实时阶段输出。
+9. 在右侧“预览对比”查看原图、标注图、生成结果和源码。
+10. 在左侧“历史任务”中打开历史结果，或批量删除任务及其产物目录。
 
 ## 移动端支持
 
@@ -176,6 +178,8 @@ git push origin v0.1.0
 
 工作流会创建或复用同名 GitHub Release，并上传 `.exe`、`.zip`、`.dmg`、`.AppImage`、`.deb`、`.tar.gz` 等安装包。macOS 产物由 macOS runner 构建；在 Windows 本机直接交叉构建 macOS 安装包并不可靠。
 
+安装包不内置 Python 科学计算依赖和 Playwright Chromium，以控制体积并避免跨平台原生库迁移问题。用户首次运行时通过“运行”页的一键安装功能下载安装到应用托管环境。
+
 ## 运行相关环境变量
 
 - `SCREENCODER_CORE_DIR`：指定外部 ScreenCoder core 目录。
@@ -187,7 +191,7 @@ git push origin v0.1.0
 
 ## 排错建议
 
-- 如果提示缺少 `cv2`、`PIL`、`bs4`、`playwright` 等模块，请把 `screencoder-core/requirements.txt` 安装到 Worker 实际使用的 Python 环境。
+- 如果提示缺少 `cv2`、`PIL`、`bs4`、`playwright` 等模块，请在“运行”页点击“检测环境”和“一键安装运行环境”。安装完成后流水线会优先使用应用托管虚拟环境。
 - 如果流水线长时间没有输出，查看日志里的心跳事件和当前脚本名；单个脚本默认 `900` 秒超时。
 - 如果生成结果和原图差异大，优先查看右侧“标注”页。标注图错误通常说明问题发生在区域识别或坐标归一化阶段。
 - 如果最终 HTML 在外部浏览器和桌面端预览不一致，优先检查资源路径、外部 CDN、iframe sandbox 限制和 `final.html` 中的运行时脚本。
