@@ -17,3 +17,7 @@ export function getWorkspaceDir(): string {
   mkdirSync(workspaceDir, { recursive: true })
   return workspaceDir
 }
+
+export function getManagedPythonDir(): string {
+  return join(getAppDataDir(), 'runtime', 'python-venv')
+}

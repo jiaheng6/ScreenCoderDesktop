@@ -39,7 +39,7 @@ ROOT_DIRS_TO_COPY = {
 }
 
 REQUIRED_RUNTIME_MODULES = {
-    "cv2": "opencv-python",
+    "cv2": "opencv-python-headless",
     "PIL": "Pillow",
     "bs4": "beautifulsoup4",
     "requests": "requests",
@@ -47,6 +47,7 @@ REQUIRED_RUNTIME_MODULES = {
     "playwright": "playwright",
     "sklearn": "scikit-learn",
     "scipy": "scipy",
+    "pandas": "pandas",
 }
 
 SCREENCODER_SCRIPTS = [

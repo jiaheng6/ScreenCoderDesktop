@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { registerIpcHandlers } from './ipc'
 import { JobStore } from './jobs/job-store'
 import { ModelProfileStore } from './models/model-profile-store'
-import { getDatabasePath, getWorkspaceDir } from './paths'
+import { getDatabasePath, getManagedPythonDir, getWorkspaceDir } from './paths'
 
 let jobStore: JobStore | null = null
 let modelProfileStore: ModelProfileStore | null = null
@@ -70,6 +70,7 @@ function registerDesktopServices(): void {
     jobStore,
     modelProfileStore,
     workspaceDir: getWorkspaceDir(),
+    managedPythonDir: getManagedPythonDir(),
     showOpenDialog: (options) => dialog.showOpenDialog(options)
   })
 }

@@ -92,6 +92,31 @@ export interface ScreencoderModelConnectionTestResult {
   latencyMs: number
 }
 
+export interface ScreencoderRuntimeDependency {
+  moduleName: string
+  packageName: string
+}
+
+export interface ScreencoderRuntimeEnvironmentStatus {
+  ok: boolean
+  pythonExecutable: string
+  managedPythonExecutable: string
+  managedPythonExists: boolean
+  workerCwd: string
+  requirementsPath: string
+  missingDependencies: ScreencoderRuntimeDependency[]
+  playwrightChromiumReady: boolean | null
+  canInstall: boolean
+  message: string
+}
+
+export interface ScreencoderRuntimeEnvironmentInstallResult {
+  ok: boolean
+  pythonExecutable: string
+  log: string
+  error?: string
+}
+
 declare global {
   interface Window {
     screencoder: {
@@ -111,6 +136,8 @@ declare global {
       listModels: () => Promise<ScreencoderModelConfigRecord[]>
       saveModel: (input: ScreencoderModelConfigInput) => Promise<ScreencoderModelConfigRecord>
       testModelConnection: (modelId: string) => Promise<ScreencoderModelConnectionTestResult>
+      checkRuntimeEnvironment: () => Promise<ScreencoderRuntimeEnvironmentStatus>
+      installRuntimeEnvironment: () => Promise<ScreencoderRuntimeEnvironmentInstallResult>
     }
   }
 }

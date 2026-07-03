@@ -15,6 +15,10 @@ import {
 import type { CreateJobInput, JobRecord } from '../src/main/jobs/job-store'
 import type { RunWorkerInput } from '../src/main/jobs/job-runner'
 import type {
+  RuntimeEnvironmentCheckInput,
+  RuntimeEnvironmentInstallInput
+} from '../src/main/runtime-environment'
+import type {
   ModelConfigInput,
   ModelConfigRecord,
   ModelProviderInput,
@@ -105,6 +109,12 @@ type TestModelConnectionHandler = (modelId: string) => Promise<{
   message: string
   latencyMs: number
 }>
+type CheckRuntimeEnvironmentHandler = () => ReturnType<
+  NonNullable<Parameters<typeof createIpcHandlers>[0]['runtimeEnvironmentChecker']>
+>
+type InstallRuntimeEnvironmentHandler = () => ReturnType<
+  NonNullable<Parameters<typeof createIpcHandlers>[0]['runtimeEnvironmentInstaller']>
+>
 
 function getRunJobHandler(handlers: ReturnType<typeof createIpcHandlers>): RunJobHandler {
   return handlers['jobs:run' as keyof typeof handlers] as unknown as RunJobHandler
@@ -130,6 +140,20 @@ function getTestModelConnectionHandler(
   handlers: ReturnType<typeof createIpcHandlers>
 ): TestModelConnectionHandler {
   return handlers['models:test-connection' as keyof typeof handlers] as unknown as TestModelConnectionHandler
+}
+
+function getCheckRuntimeEnvironmentHandler(
+  handlers: ReturnType<typeof createIpcHandlers>
+): CheckRuntimeEnvironmentHandler {
+  return handlers['runtime:check-environment' as keyof typeof handlers] as unknown as CheckRuntimeEnvironmentHandler
+}
+
+function getInstallRuntimeEnvironmentHandler(
+  handlers: ReturnType<typeof createIpcHandlers>
+): InstallRuntimeEnvironmentHandler {
+  return handlers[
+    'runtime:install-environment' as keyof typeof handlers
+  ] as unknown as InstallRuntimeEnvironmentHandler
 }
 
 function createFakeIpcEvent(sentMessages: Array<{ channel: string; payload: unknown }>): FakeIpcEvent {
@@ -264,6 +288,30 @@ function createFakeModelProfileStore(): {
 }
 
 describe('desktop IPC 白名单 API', () => {
+  it('解析 Python 解释器时会优先使用应用托管运行环境', () => {
+    const { directory, cleanup } = createTempWorkspace('screencoder-managed-python-')
+    const previousCoreDir = process.env.SCREENCODER_CORE_DIR
+    const previousPython = process.env.SCREENCODER_PYTHON
+    const managedPythonDir = join(directory, 'runtime', 'python-venv')
+    const pythonPath =
+      process.platform === 'win32'
+        ? join(managedPythonDir, 'Scripts', 'python.exe')
+        : join(managedPythonDir, 'bin', 'python')
+
+    mkdirSync(dirname(pythonPath), { recursive: true })
+    writeFileSync(pythonPath, '')
+    delete process.env.SCREENCODER_CORE_DIR
+    delete process.env.SCREENCODER_PYTHON
+
+    try {
+      expect(resolvePythonExecutable(join(directory, 'app'), managedPythonDir)).toBe(pythonPath)
+    } finally {
+      restoreEnvValue('SCREENCODER_CORE_DIR', previousCoreDir)
+      restoreEnvValue('SCREENCODER_PYTHON', previousPython)
+      cleanup()
+    }
+  })
+
   it('解析 Python 解释器时会优先使用 ScreenCoder core 旁边的虚拟环境', () => {
     const { directory, cleanup } = createTempWorkspace('screencoder-python-resolution-')
     const previousCoreDir = process.env.SCREENCODER_CORE_DIR
@@ -286,6 +334,79 @@ describe('desktop IPC 白名单 API', () => {
       restoreEnvValue('SCREENCODER_PYTHON', previousPython)
       cleanup()
     }
+  })
+
+  it('检测运行环境时会使用当前 Python、Worker 目录和托管环境目录', () => {
+    let checkerInput: RuntimeEnvironmentCheckInput | undefined
+    const handlers = createIpcHandlers({
+      jobStore: createFakeJobStore(),
+      modelProfileStore: createFakeModelProfileStore(),
+      workspaceDir: 'C:\\workspace',
+      showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+      pythonExecutable: 'C:\\Python\\python.exe',
+      workerCwd: 'C:\\repo\\python',
+      managedPythonDir: 'C:\\app-data\\runtime\\python-venv',
+      runtimeEnvironmentChecker: (input) => {
+        checkerInput = input
+        return {
+          ok: false,
+          pythonExecutable: input.pythonExecutable,
+          managedPythonExecutable: input.managedPythonExecutable,
+          managedPythonExists: false,
+          workerCwd: input.workerCwd,
+          requirementsPath: input.requirementsPath,
+          missingDependencies: [{ moduleName: 'cv2', packageName: 'opencv-python-headless' }],
+          playwrightChromiumReady: false,
+          canInstall: true,
+          message: '缺少 1 个运行依赖'
+        }
+      }
+    })
+
+    expect(getCheckRuntimeEnvironmentHandler(handlers)()).toMatchObject({
+      ok: false,
+      pythonExecutable: 'C:\\Python\\python.exe',
+      managedPythonExecutable: expect.stringContaining('python.exe'),
+      missingDependencies: [{ moduleName: 'cv2', packageName: 'opencv-python-headless' }],
+      canInstall: true
+    })
+    expect(checkerInput).toMatchObject({
+      pythonExecutable: 'C:\\Python\\python.exe',
+      workerCwd: 'C:\\repo\\python',
+      managedPythonDir: 'C:\\app-data\\runtime\\python-venv'
+    })
+  })
+
+  it('一键安装运行环境时会创建应用托管环境并返回安装结果', async () => {
+    let installerInput: RuntimeEnvironmentInstallInput | undefined
+    const handlers = createIpcHandlers({
+      jobStore: createFakeJobStore(),
+      modelProfileStore: createFakeModelProfileStore(),
+      workspaceDir: 'C:\\workspace',
+      showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+      pythonExecutable: 'C:\\Python\\python.exe',
+      workerCwd: 'C:\\repo\\python',
+      managedPythonDir: 'C:\\app-data\\runtime\\python-venv',
+      runtimeEnvironmentInstaller: async (input) => {
+        installerInput = input
+        return {
+          ok: true,
+          pythonExecutable: input.managedPythonExecutable,
+          log: '安装完成'
+        }
+      }
+    })
+
+    await expect(getInstallRuntimeEnvironmentHandler(handlers)()).resolves.toEqual({
+      ok: true,
+      pythonExecutable: expect.stringContaining('python.exe'),
+      log: '安装完成'
+    })
+    expect(installerInput).toMatchObject({
+      basePythonExecutable: 'C:\\Python\\python.exe',
+      workerCwd: 'C:\\repo\\python',
+      managedPythonDir: 'C:\\app-data\\runtime\\python-venv'
+    })
   })
 
   it('只注册允许的 IPC channel', () => {

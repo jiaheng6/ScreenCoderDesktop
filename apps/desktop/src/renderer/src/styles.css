@@ -206,6 +206,52 @@ body {
   margin: 0 0 16px;
 }
 
+.runtime-environment-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border-bottom: 1px solid #edf0f4;
+  padding: 16px 0;
+}
+
+.runtime-environment-card p {
+  margin: 6px 0 0;
+  color: #596579;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.runtime-status {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #f0c3bc;
+  border-radius: 999px;
+  background: #fff4f2;
+  padding: 3px 9px;
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.runtime-status.is-ok {
+  border-color: #b8e4cb;
+  background: #ecfdf3;
+  color: #067647;
+}
+
+.runtime-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.runtime-missing-list {
+  color: #b54708;
+}
+
 .workflow-tab-panel .log-panel {
   height: 100%;
 }
