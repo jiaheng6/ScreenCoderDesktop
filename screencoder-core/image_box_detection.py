@@ -34,7 +34,9 @@ async def extract_bboxes_from_html(html_path: Path, viewport_width: int = 1280, 
                 const placeholder_bboxes = [];
                 let ph_id_counter = 0;
                 //精准检测
-                const all_potential_placeholders = document.querySelectorAll('.bg-gray-400');
+                const all_potential_placeholders = document.querySelectorAll(
+                    '[data-screencoder-placeholder="image"], .bg-gray-400'
+                );
 
                 for (const el of all_potential_placeholders) {
                     // Apply the same filters as before
@@ -176,7 +178,7 @@ def main(args):
         extract_bboxes_from_html(args.html, W, H)
     )
     if not placeholder_bboxes:
-        sys.exit("错误：未找到灰色占位图块。")
+        print("警告：生成的 HTML 中没有图片占位块，将保留当前 HTML 并跳过图片裁剪替换。")
 
     viewport_width = W
     viewport_height = H
@@ -238,7 +240,7 @@ def main(args):
 
     if args.json:
         args.json.parent.mkdir(parents=True, exist_ok=True)
-        args.json.write_text(output_json)
+        args.json.write_text(output_json, encoding="utf-8")
         print(f"Success: BBox list saved to {args.json}")
 
 

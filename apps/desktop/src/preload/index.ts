@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 
 contextBridge.exposeInMainWorld('screencoder', {
-  appVersion: '0.1.2',
+  appVersion: '0.1.3',
   selectImage: () => ipcRenderer.invoke('dialog:select-image'),
   readImagePreview: (inputPath: string) => ipcRenderer.invoke('images:read-preview', inputPath),
   listJobs: () => ipcRenderer.invoke('jobs:list'),

@@ -3,6 +3,7 @@ from pathlib import Path
 from queue import Empty, Queue
 from shutil import copy2, copyfile, copytree, rmtree
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -345,7 +346,7 @@ PROMPT_DICT = {{
 
 
 def _run_core_process(runtime_dir: Path, config: RunConfig) -> Iterator[dict[str, object]]:
-    for stage_name, script_path in SCREENCODER_SCRIPTS:
+    for stage_index, (stage_name, script_path) in enumerate(SCREENCODER_SCRIPTS):
         script_label = script_path.as_posix()
         if not (runtime_dir / script_path).exists():
             raise WorkerError(f"ScreenCoder 脚本不存在：{script_label}")
@@ -362,7 +363,47 @@ def _run_core_process(runtime_dir: Path, config: RunConfig) -> Iterator[dict[str
             return exit_code
         yield stage_event(stage_name, "done", script=script_label)
 
+        if stage_name == "image_box_detection" and _has_no_image_placeholders(runtime_dir):
+            _use_generated_html_without_image_replacement(runtime_dir)
+            yield {
+                "type": "log",
+                "stream": "stdout",
+                "line": "未检测到图片占位块，已保留生成的 HTML，并跳过 UIED 检测、映射和图片替换阶段。",
+            }
+            for skipped_stage, skipped_script in SCREENCODER_SCRIPTS[stage_index + 1:]:
+                yield stage_event(
+                    skipped_stage,
+                    "skipped",
+                    script=skipped_script.as_posix(),
+                    reason="没有需要替换的图片占位块",
+                )
+            return 0
+
     return 0
+
+
+def _has_no_image_placeholders(runtime_dir: Path) -> bool:
+    bbox_path = runtime_dir / "data" / "tmp" / "test1_bboxes.json"
+    if not bbox_path.exists():
+        return False
+
+    try:
+        bbox_data = json.loads(bbox_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    placeholders = bbox_data.get("placeholders")
+    return isinstance(placeholders, list) and not placeholders
+
+
+def _use_generated_html_without_image_replacement(runtime_dir: Path) -> None:
+    initial_html = runtime_dir / "data" / "output" / "test1_layout.html"
+    final_html = runtime_dir / "data" / "output" / "test1_layout_final.html"
+    if not initial_html.exists():
+        raise WorkerError(f"ScreenCoder 初始 HTML 产物不存在：{initial_html}")
+
+    final_html.parent.mkdir(parents=True, exist_ok=True)
+    copyfile(initial_html, final_html)
 
 
 def _run_script_process(

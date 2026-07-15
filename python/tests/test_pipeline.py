@@ -145,6 +145,81 @@ def test_run_pipeline_移动端任务会注入页面类型和移动端约束(tmp
     assert "screencoder-mobile-adapter" in final_html
 
 
+def test_run_pipeline_没有图片占位块时保留初始_html_并跳过替换阶段(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    input_path = tmp_path / "screen.png"
+    output_dir = tmp_path / "output"
+    fake_core = create_fake_screencoder_core(tmp_path / "fake-core")
+    input_path.write_bytes(b"mock image bytes")
+    monkeypatch.setenv("SCREENCODER_CORE_DIR", str(fake_core))
+
+    (fake_core / "html_generator.py").write_text(
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "Path('data/output').mkdir(parents=True, exist_ok=True)",
+                "Path('data/output/test1_layout.html').write_text('<main>无图片占位块页面</main>', encoding='utf-8')",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (fake_core / "image_box_detection.py").write_text(
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "Path('data/tmp/test1_bboxes.json').write_text('{\"regions\": [], \"placeholders\": []}', encoding='utf-8')",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (fake_core / "UIED" / "run_single.py").write_text(
+        "raise SystemExit('没有占位块时不应运行 UIED')\n",
+        encoding="utf-8",
+    )
+    (fake_core / "mapping.py").write_text(
+        "raise SystemExit('没有占位块时不应运行映射')\n",
+        encoding="utf-8",
+    )
+    (fake_core / "image_replacer.py").write_text(
+        "raise SystemExit('没有占位块时不应运行图片替换')\n",
+        encoding="utf-8",
+    )
+
+    events = list(
+        run_pipeline(
+            RunConfig(
+                input_path=input_path,
+                output_dir=output_dir,
+                provider="opencode-go",
+                model="minimax-m3",
+                base_url="https://opencode.ai/zen/go/v1",
+                api_key="sk-test",
+                target="html",
+                page_kind="web",
+            )
+        )
+    )
+
+    assert (output_dir / "final.html").read_text(encoding="utf-8") == (
+        "<main>无图片占位块页面</main>"
+    )
+    assert {
+        "type": "stage",
+        "stage": "uied_detection",
+        "status": "skipped",
+        "script": "UIED/run_single.py",
+        "reason": "没有需要替换的图片占位块",
+    } in events
+    assert {
+        "type": "stage",
+        "stage": "final",
+        "status": "done",
+        "output": str(output_dir / "final.html"),
+    } in events
+
+
 def create_fake_screencoder_core(core_dir: Path) -> Path:
     core_dir.mkdir(parents=True)
     (core_dir / "main.py").write_text(
@@ -179,6 +254,17 @@ def create_fake_screencoder_core(core_dir: Path) -> Path:
                         "from pathlib import Path",
                         "Path('data/tmp/target.txt').write_text(os.environ['SCREENCODER_TARGET_FRAMEWORK'], encoding='utf-8')",
                         "print('html_generator.py done', flush=True)",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+        elif script_name == "image_box_detection.py":
+            (core_dir / script_name).write_text(
+                "\n".join(
+                    [
+                        "from pathlib import Path",
+                        "Path('data/tmp/test1_bboxes.json').write_text('{\"regions\": [{\"id\": \"1\"}], \"placeholders\": [{\"id\": \"ph0\"}]}', encoding='utf-8')",
+                        "print('image_box_detection.py done', flush=True)",
                     ]
                 ),
                 encoding="utf-8",
@@ -238,14 +324,20 @@ def create_fake_mobile_screencoder_core(core_dir: Path) -> Path:
         ),
         encoding="utf-8",
     )
-    for script_name in [
-        "image_box_detection.py",
-        "mapping.py",
-    ]:
-        (core_dir / script_name).write_text(
-            f"print('{script_name} done', flush=True)\n",
-            encoding="utf-8",
-        )
+    (core_dir / "image_box_detection.py").write_text(
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "Path('data/tmp/test1_bboxes.json').write_text('{\"regions\": [{\"id\": \"1\"}], \"placeholders\": [{\"id\": \"ph0\"}]}', encoding='utf-8')",
+                "print('image_box_detection.py done', flush=True)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (core_dir / "mapping.py").write_text(
+        "print('mapping.py done', flush=True)\n",
+        encoding="utf-8",
+    )
     uied_dir = core_dir / "UIED"
     uied_dir.mkdir()
     (uied_dir / "run_single.py").write_text(

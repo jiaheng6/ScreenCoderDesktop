@@ -49,16 +49,23 @@ def resolve_containment(bboxes: dict[str, tuple[int, int, int, int]]) -> dict[st
     removed = set()
 
     for i in range(len(names)):
-        for j in range(len(names)):
-            if i == j or names[i] in removed or names[j] in removed:
+        for j in range(i + 1, len(names)):
+            if names[i] in removed or names[j] in removed:
                 continue
 
             name1, box1 = names[i], bboxes[names[i]]
             name2, box2 = names[j], bboxes[names[j]]
 
-            if contains(box1, box2) or contains(box2, box1):
-                print(f"Containment found: '{name1}' contains '{name2}'. Removing '{name2}'.")
+            if box1 == box2:
+                print(f"检测到重复区域：'{name1}' 与 '{name2}' 坐标相同，移除 '{name2}'。")
                 removed.add(name2)
+            elif contains(box1, box2):
+                print(f"检测到区域包含：'{name1}' 包含 '{name2}'，移除被包含区域 '{name2}'。")
+                removed.add(name2)
+            elif contains(box2, box1):
+                print(f"检测到区域包含：'{name2}' 包含 '{name1}'，移除被包含区域 '{name1}'。")
+                removed.add(name1)
+                break
 
     return {name: bbox for name, bbox in bboxes.items() if name not in removed}
 

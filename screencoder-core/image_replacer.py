@@ -71,7 +71,10 @@ def main(args):
     soup = BeautifulSoup(html_content, 'html.parser')
 
     # 1. 只替换缩略图占位块，避免把头像圆点等装饰块替换成截图裁剪图。
-    all_placeholder_elements = soup.find_all(class_="bg-gray-400")
+    all_placeholder_elements = soup.find_all(
+        lambda element: element.get("data-screencoder-placeholder") == "image"
+        or "bg-gray-400" in element.get("class", [])
+    )
     placeholder_elements = [
         element for element in all_placeholder_elements
         if "aspect-video" in element.get("class", [])

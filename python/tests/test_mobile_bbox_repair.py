@@ -30,6 +30,25 @@ def test_parse_bboxes_移动端会修复被截断的全宽区域(tmp_path: Path,
     }
 
 
+def test_resolve_containment_无论输入顺序都移除被包含区域(monkeypatch) -> None:
+    block_parsor = load_block_parsor_module(monkeypatch)
+
+    bboxes = block_parsor.resolve_containment(
+        {
+            "sidebar": (0, 0, 167, 71),
+            "header": (0, 0, 1000, 71),
+            "navigation": (167, 71, 1000, 148),
+            "main content": (167, 148, 1000, 991),
+        }
+    )
+
+    assert bboxes == {
+        "header": (0, 0, 1000, 71),
+        "navigation": (167, 71, 1000, 148),
+        "main content": (167, 148, 1000, 991),
+    }
+
+
 def load_block_parsor_module(monkeypatch):
     core_dir = Path(__file__).resolve().parents[2] / "screencoder-core"
     fake_image = SimpleNamespace(shape=(905, 421, 3))
