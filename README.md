@@ -172,8 +172,8 @@ pnpm python:test
 发布流程示例：
 
 ```bash
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 工作流会创建或复用同名 GitHub Release，并上传 `.exe`、`.zip`、`.dmg`、`.AppImage`、`.deb`、`.tar.gz` 等安装包。macOS 产物由 macOS runner 构建；在 Windows 本机直接交叉构建 macOS 安装包并不可靠。

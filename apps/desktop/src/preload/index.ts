@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 
 contextBridge.exposeInMainWorld('screencoder', {
-  appVersion: '0.1.1',
+  appVersion: '0.1.2',
   selectImage: () => ipcRenderer.invoke('dialog:select-image'),
   readImagePreview: (inputPath: string) => ipcRenderer.invoke('images:read-preview', inputPath),
   listJobs: () => ipcRenderer.invoke('jobs:list'),
@@ -18,6 +18,17 @@ contextBridge.exposeInMainWorld('screencoder', {
 
     return (): void => {
       ipcRenderer.removeListener('jobs:event', listener)
+    }
+  },
+  onRuntimeEnvironmentEvent: (callback: (payload: unknown) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: unknown): void => {
+      callback(payload)
+    }
+
+    ipcRenderer.on('runtime:event', listener)
+
+    return (): void => {
+      ipcRenderer.removeListener('runtime:event', listener)
     }
   },
   listProviders: () => ipcRenderer.invoke('providers:list'),

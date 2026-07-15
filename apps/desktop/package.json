@@ -1,6 +1,6 @@
 {
   "name": "@screencoder/desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "ScreenCoder 桌面端截图转代码工具",
   "homepage": "https://github.com/jiaheng6/ScreenCoderDesktop#readme",
