@@ -3,6 +3,7 @@ import type {
   ScreencoderJobRecord,
   ScreencoderModelConfigRecord,
   ScreencoderPageKind,
+  ScreencoderRuntimeEnvironmentInstallProgress,
   ScreencoderRuntimeEnvironmentStatus,
   ScreencoderTargetFramework
 } from '../global'
@@ -47,6 +48,8 @@ export function RunPanel({
   const [isRunning, setIsRunning] = useState(false)
   const [isCheckingEnvironment, setIsCheckingEnvironment] = useState(false)
   const [isInstallingEnvironment, setIsInstallingEnvironment] = useState(false)
+  const [installProgress, setInstallProgress] =
+    useState<ScreencoderRuntimeEnvironmentInstallProgress | null>(null)
   const [runtimeStatus, setRuntimeStatus] = useState<ScreencoderRuntimeEnvironmentStatus | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const isPipelineDisabled = isRunPipelineDisabled({
@@ -61,6 +64,13 @@ export function RunPanel({
   useEffect(() => {
     void handleCheckEnvironment(false)
   }, [])
+
+  useEffect(() => {
+    return window.screencoder.onRuntimeEnvironmentEvent((progress) => {
+      setInstallProgress(progress)
+      onRunLog(`运行环境安装进度：${progress.label}${progress.detail ? `，${progress.detail}` : ''}`)
+    })
+  }, [onRunLog])
 
   async function handleCheckEnvironment(shouldLog = true): Promise<ScreencoderRuntimeEnvironmentStatus | null> {
     setIsCheckingEnvironment(true)
@@ -84,6 +94,13 @@ export function RunPanel({
 
   async function handleInstallEnvironment(): Promise<void> {
     setIsInstallingEnvironment(true)
+    setInstallProgress({
+      type: 'progress',
+      status: 'running',
+      step: 'prepare',
+      label: '正在准备运行环境安装',
+      percent: 0
+    })
     setMessage(null)
     onRunLog('开始安装运行环境')
 
@@ -93,15 +110,39 @@ export function RunPanel({
 
       if (!result.ok) {
         const errorMessage = result.error ?? '运行环境安装失败'
+        setInstallProgress({
+          type: 'progress',
+          status: 'failed',
+          step: 'final',
+          label: '运行环境安装失败',
+          percent: 100,
+          detail: errorMessage
+        })
         setMessage(errorMessage)
         onRunLog(`运行环境安装失败：${errorMessage}`)
         return
       }
 
+      setInstallProgress({
+        type: 'progress',
+        status: 'done',
+        step: 'final',
+        label: '运行环境安装完成',
+        percent: 100,
+        detail: result.pythonExecutable
+      })
       setMessage('运行环境安装完成')
       await handleCheckEnvironment(true)
     } catch (error) {
       const errorMessage = getErrorMessage(error)
+      setInstallProgress({
+        type: 'progress',
+        status: 'failed',
+        step: 'final',
+        label: '运行环境安装失败',
+        percent: 100,
+        detail: errorMessage
+      })
       setMessage(errorMessage)
       onRunLog(`运行环境安装失败：${errorMessage}`)
     } finally {
@@ -184,6 +225,27 @@ export function RunPanel({
             <p className="runtime-missing-list">
               缺失：{runtimeStatus.missingDependencies.map((item) => item.moduleName).join('、')}
             </p>
+          ) : null}
+          {installProgress ? (
+            <div className="runtime-install-progress" aria-live="polite">
+              <div className="runtime-progress-header">
+                <span>{installProgress.label}</span>
+                <span>{Math.round(installProgress.percent)}%</span>
+              </div>
+              <div className="runtime-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(installProgress.percent)}>
+                <div
+                  className={
+                    installProgress.status === 'failed'
+                      ? 'runtime-progress-fill is-failed'
+                      : 'runtime-progress-fill'
+                  }
+                  style={{ width: `${Math.min(100, Math.max(0, installProgress.percent))}%` }}
+                />
+              </div>
+              {installProgress.detail ? (
+                <p className="runtime-progress-detail">{installProgress.detail}</p>
+              ) : null}
+            </div>
           ) : null}
         </div>
         <div className="runtime-actions">

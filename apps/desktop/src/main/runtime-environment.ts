@@ -34,6 +34,7 @@ export interface RuntimeEnvironmentInstallInput {
   managedPythonExecutable: string
   workerCwd: string
   requirementsPath: string
+  onProgress?: (progress: RuntimeEnvironmentInstallProgress) => void
 }
 
 export interface RuntimeEnvironmentInstallResult {
@@ -41,6 +42,21 @@ export interface RuntimeEnvironmentInstallResult {
   pythonExecutable: string
   log: string
   error?: string
+}
+
+export interface RuntimeEnvironmentInstallProgress {
+  type: 'progress'
+  status: 'running' | 'done' | 'failed'
+  step:
+    | 'prepare'
+    | 'create_venv'
+    | 'upgrade_pip'
+    | 'install_dependencies'
+    | 'install_chromium'
+    | 'final'
+  label: string
+  percent: number
+  detail?: string
 }
 
 interface PythonEnvironmentCheckResult {
@@ -142,21 +158,77 @@ export async function installRuntimeEnvironment(
   const logParts: string[] = []
 
   try {
+    emitInstallProgress(input, {
+      type: 'progress',
+      status: 'running',
+      step: 'prepare',
+      label: '正在准备运行环境目录',
+      percent: 5,
+      detail: input.managedPythonDir
+    })
     mkdirSync(dirname(input.managedPythonDir), { recursive: true })
 
     if (!existsSync(input.managedPythonExecutable)) {
       logParts.push(`创建托管 Python 环境：${input.managedPythonDir}`)
+      emitInstallProgress(input, {
+        type: 'progress',
+        status: 'running',
+        step: 'create_venv',
+        label: '正在创建 Python 虚拟环境',
+        percent: 15,
+        detail: input.managedPythonDir
+      })
       await runCommand(input.basePythonExecutable, ['-m', 'venv', input.managedPythonDir], logParts)
+      emitInstallProgress(input, {
+        type: 'progress',
+        status: 'done',
+        step: 'create_venv',
+        label: 'Python 虚拟环境已创建',
+        percent: 25,
+        detail: input.managedPythonExecutable
+      })
+    } else {
+      emitInstallProgress(input, {
+        type: 'progress',
+        status: 'done',
+        step: 'create_venv',
+        label: '已发现托管 Python 虚拟环境',
+        percent: 25,
+        detail: input.managedPythonExecutable
+      })
     }
 
     logParts.push('升级 pip、setuptools 和 wheel')
+    emitInstallProgress(input, {
+      type: 'progress',
+      status: 'running',
+      step: 'upgrade_pip',
+      label: '正在升级 pip 和构建工具',
+      percent: 35,
+      detail: 'pip、setuptools、wheel'
+    })
     await runCommand(
       input.managedPythonExecutable,
       ['-m', 'pip', 'install', '--upgrade', 'pip', 'setuptools', 'wheel'],
       logParts
     )
+    emitInstallProgress(input, {
+      type: 'progress',
+      status: 'done',
+      step: 'upgrade_pip',
+      label: 'pip 和构建工具已就绪',
+      percent: 45
+    })
 
     logParts.push(`安装 ScreenCoder 运行依赖：${input.requirementsPath}`)
+    emitInstallProgress(input, {
+      type: 'progress',
+      status: 'running',
+      step: 'install_dependencies',
+      label: '正在安装 ScreenCoder 运行依赖',
+      percent: 55,
+      detail: input.requirementsPath
+    })
     await runCommand(
       input.managedPythonExecutable,
       [
@@ -170,11 +242,33 @@ export async function installRuntimeEnvironment(
       ],
       logParts
     )
+    emitInstallProgress(input, {
+      type: 'progress',
+      status: 'done',
+      step: 'install_dependencies',
+      label: 'ScreenCoder 运行依赖已安装',
+      percent: 80
+    })
 
     logParts.push('安装 Playwright Chromium')
+    emitInstallProgress(input, {
+      type: 'progress',
+      status: 'running',
+      step: 'install_chromium',
+      label: '正在安装 Playwright Chromium',
+      percent: 85
+    })
     await runCommand(input.managedPythonExecutable, ['-m', 'playwright', 'install', 'chromium'], logParts)
 
     logParts.push(`运行环境安装完成：${input.managedPythonExecutable}`)
+    emitInstallProgress(input, {
+      type: 'progress',
+      status: 'done',
+      step: 'final',
+      label: '运行环境安装完成',
+      percent: 100,
+      detail: input.managedPythonExecutable
+    })
     return {
       ok: true,
       pythonExecutable: input.managedPythonExecutable,
@@ -183,6 +277,14 @@ export async function installRuntimeEnvironment(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : '运行环境安装失败'
     logParts.push(errorMessage)
+    emitInstallProgress(input, {
+      type: 'progress',
+      status: 'failed',
+      step: 'final',
+      label: '运行环境安装失败',
+      percent: 100,
+      detail: errorMessage
+    })
     return {
       ok: false,
       pythonExecutable: input.managedPythonExecutable,
@@ -190,6 +292,13 @@ export async function installRuntimeEnvironment(
       error: errorMessage
     }
   }
+}
+
+function emitInstallProgress(
+  input: RuntimeEnvironmentInstallInput,
+  progress: RuntimeEnvironmentInstallProgress
+): void {
+  input.onProgress?.(progress)
 }
 
 function parsePythonEnvironmentCheck(stdout: string): PythonEnvironmentCheckResult {

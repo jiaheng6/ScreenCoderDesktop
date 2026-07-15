@@ -117,6 +117,21 @@ export interface ScreencoderRuntimeEnvironmentInstallResult {
   error?: string
 }
 
+export interface ScreencoderRuntimeEnvironmentInstallProgress {
+  type: 'progress'
+  status: 'running' | 'done' | 'failed'
+  step:
+    | 'prepare'
+    | 'create_venv'
+    | 'upgrade_pip'
+    | 'install_dependencies'
+    | 'install_chromium'
+    | 'final'
+  label: string
+  percent: number
+  detail?: string
+}
+
 declare global {
   interface Window {
     screencoder: {
@@ -129,6 +144,9 @@ declare global {
       readJobPreview: (jobId: string) => Promise<ScreencoderJobPreview>
       deleteJobs: (jobIds: string[]) => Promise<{ deletedCount: number }>
       onJobEvent: (callback: (payload: ScreencoderJobEventPayload) => void) => () => void
+      onRuntimeEnvironmentEvent: (
+        callback: (payload: ScreencoderRuntimeEnvironmentInstallProgress) => void
+      ) => () => void
       listProviders: () => Promise<ScreencoderModelProviderRecord[]>
       saveProvider: (
         input: ScreencoderModelProviderInput

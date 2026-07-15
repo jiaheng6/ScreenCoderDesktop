@@ -112,7 +112,7 @@ type TestModelConnectionHandler = (modelId: string) => Promise<{
 type CheckRuntimeEnvironmentHandler = () => ReturnType<
   NonNullable<Parameters<typeof createIpcHandlers>[0]['runtimeEnvironmentChecker']>
 >
-type InstallRuntimeEnvironmentHandler = () => ReturnType<
+type InstallRuntimeEnvironmentHandler = (event: FakeIpcEvent) => ReturnType<
   NonNullable<Parameters<typeof createIpcHandlers>[0]['runtimeEnvironmentInstaller']>
 >
 
@@ -379,6 +379,7 @@ describe('desktop IPC 白名单 API', () => {
 
   it('一键安装运行环境时会创建应用托管环境并返回安装结果', async () => {
     let installerInput: RuntimeEnvironmentInstallInput | undefined
+    const sentMessages: Array<{ channel: string; payload: unknown }> = []
     const handlers = createIpcHandlers({
       jobStore: createFakeJobStore(),
       modelProfileStore: createFakeModelProfileStore(),
@@ -389,6 +390,14 @@ describe('desktop IPC 白名单 API', () => {
       managedPythonDir: 'C:\\app-data\\runtime\\python-venv',
       runtimeEnvironmentInstaller: async (input) => {
         installerInput = input
+        input.onProgress?.({
+          type: 'progress',
+          status: 'running',
+          step: 'install_dependencies',
+          label: '正在安装 ScreenCoder 运行依赖',
+          percent: 65,
+          detail: 'pip install'
+        })
         return {
           ok: true,
           pythonExecutable: input.managedPythonExecutable,
@@ -397,7 +406,9 @@ describe('desktop IPC 白名单 API', () => {
       }
     })
 
-    await expect(getInstallRuntimeEnvironmentHandler(handlers)()).resolves.toEqual({
+    await expect(
+      getInstallRuntimeEnvironmentHandler(handlers)(createFakeIpcEvent(sentMessages))
+    ).resolves.toEqual({
       ok: true,
       pythonExecutable: expect.stringContaining('python.exe'),
       log: '安装完成'
@@ -406,6 +417,17 @@ describe('desktop IPC 白名单 API', () => {
       basePythonExecutable: 'C:\\Python\\python.exe',
       workerCwd: 'C:\\repo\\python',
       managedPythonDir: 'C:\\app-data\\runtime\\python-venv'
+    })
+    expect(sentMessages).toContainEqual({
+      channel: 'runtime:event',
+      payload: {
+        type: 'progress',
+        status: 'running',
+        step: 'install_dependencies',
+        label: '正在安装 ScreenCoder 运行依赖',
+        percent: 65,
+        detail: 'pip install'
+      }
     })
   })
 

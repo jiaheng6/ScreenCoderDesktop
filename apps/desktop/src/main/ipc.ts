@@ -54,6 +54,7 @@ export const IPC_CHANNELS = {
 } as const
 
 export const JOB_EVENT_CHANNEL = 'jobs:event'
+export const RUNTIME_ENV_EVENT_CHANNEL = 'runtime:event'
 
 export interface IpcMainLike {
   handle: (channel: string, listener: (_event: unknown, ...args: unknown[]) => unknown) => void
@@ -141,7 +142,9 @@ type IpcHandlers = {
   [IPC_CHANNELS.saveModel]: (input: ModelConfigInput) => ModelConfigRecord
   [IPC_CHANNELS.testModelConnection]: (modelId: string) => Promise<ModelConnectionTestResult>
   [IPC_CHANNELS.checkRuntimeEnvironment]: () => RuntimeEnvironmentStatus
-  [IPC_CHANNELS.installRuntimeEnvironment]: () => Promise<RuntimeEnvironmentInstallResult>
+  [IPC_CHANNELS.installRuntimeEnvironment]: (
+    event: IpcInvokeEventLike
+  ) => Promise<RuntimeEnvironmentInstallResult>
 }
 
 const allowedImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp'])
@@ -175,12 +178,17 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
     workerCwd,
     requirementsPath: resolveRuntimeRequirementsPath(workerCwd)
   })
-  const createRuntimeEnvironmentInstallInput = (): RuntimeEnvironmentInstallInput => ({
+  const createRuntimeEnvironmentInstallInput = (
+    event: IpcInvokeEventLike
+  ): RuntimeEnvironmentInstallInput => ({
     basePythonExecutable: input.pythonExecutable ?? resolvePythonExecutable(input.appPath),
     managedPythonDir,
     managedPythonExecutable: resolveManagedPythonExecutable(managedPythonDir),
     workerCwd,
-    requirementsPath: resolveRuntimeRequirementsPath(workerCwd)
+    requirementsPath: resolveRuntimeRequirementsPath(workerCwd),
+    onProgress: (progress) => {
+      event.sender.send(RUNTIME_ENV_EVENT_CHANNEL, progress)
+    }
   })
 
   return {
@@ -299,8 +307,8 @@ export function createIpcHandlers(input: CreateIpcHandlersInput): IpcHandlers {
     [IPC_CHANNELS.checkRuntimeEnvironment]() {
       return runtimeEnvironmentChecker(createRuntimeEnvironmentInput())
     },
-    [IPC_CHANNELS.installRuntimeEnvironment]() {
-      return runtimeEnvironmentInstaller(createRuntimeEnvironmentInstallInput())
+    [IPC_CHANNELS.installRuntimeEnvironment](event: IpcInvokeEventLike) {
+      return runtimeEnvironmentInstaller(createRuntimeEnvironmentInstallInput(event))
     }
   }
 }
@@ -339,8 +347,8 @@ export function registerIpcHandlers(input: CreateIpcHandlersInput & { ipcMain: I
   input.ipcMain.handle(IPC_CHANNELS.checkRuntimeEnvironment, () =>
     handlers[IPC_CHANNELS.checkRuntimeEnvironment]()
   )
-  input.ipcMain.handle(IPC_CHANNELS.installRuntimeEnvironment, () =>
-    handlers[IPC_CHANNELS.installRuntimeEnvironment]()
+  input.ipcMain.handle(IPC_CHANNELS.installRuntimeEnvironment, (event) =>
+    handlers[IPC_CHANNELS.installRuntimeEnvironment](event as IpcInvokeEventLike)
   )
 }
 
